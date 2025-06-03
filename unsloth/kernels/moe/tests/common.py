@@ -1,3 +1,4 @@
+from typing import Optional, Any
 import itertools
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -15,18 +16,35 @@ from grouped_gemm.kernels.tuning import (
 )
 
 
-def print_delimiter(char="-", length=80):
+def print_delimiter(char: str = "-", length: int = 80) -> None:
+    """
+    Prints a delimiter line of specified length and character.
+    """
     print(char * length)
 
 
 @contextmanager
-def delimiter_context():
+def delimiter_context() -> None:
+    """
+    Context manager that prints delimiters before and after a code block.
+    """
     print_delimiter()
     yield
     print_delimiter()
 
 
-def make_inputs(M, N, K, E, topk, dtype, requires_grad=False):
+def make_inputs(
+    M: int,
+    N: int,
+    K: int,
+    E: int,
+    topk: int,
+    dtype: torch.dtype,
+    requires_grad: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generates random input tensors for testing purposes.
+    """
     X1 = (
         torch.randn((M, K), device="cuda", dtype=dtype, requires_grad=requires_grad)
         / 10
@@ -59,6 +77,10 @@ def make_inputs(M, N, K, E, topk, dtype, requires_grad=False):
 
 @dataclass(kw_only=True)
 class DataConfig:
+    """
+    Configuration class for data parameters.
+    """
+
     seq_len: int
     dtype: torch.dtype
     device: str = "cuda"
@@ -67,6 +89,10 @@ class DataConfig:
 
 @dataclass(kw_only=True)
 class ModelConfig:
+    """
+    Configuration class for model parameters.
+    """
+
     hidden_size: int
     intermediate_size: int
     num_experts: int
@@ -77,11 +103,18 @@ class ModelConfig:
     post_mul: bool = field(init=False)
 
     def __post_init__(self):
+        """
+        Post-initialization method to set derived parameters.
+        """
         self.post_mul = not self.pre_mul
 
 
 @dataclass(kw_only=True)
 class GroupedGEMMTestConfig:
+    """
+    Configuration class for grouped GEMM test parameters.
+    """
+
     name: str = "test"
     data_config: DataConfig
     model_config: ModelConfig
@@ -95,14 +128,27 @@ TOLERANCE = {
 
 
 # from https://github.com/triton-lang/triton/blob/main/bench/triton_bench/testing.py
-def assert_equal(ref, tri):
+def assert_equal(ref, tri) -> None:
+    """
+    Asserts equality between two values or tensors.
+    """
     if isinstance(ref, torch.Tensor):
         assert torch.all(ref == tri), f"tensors not equal {ref} != {tri}"
     else:
         assert ref == tri, f"ref not equal to tri {ref} != {tri}"
 
 
-def assert_close(ref, tri, maxtol=None, rmstol=None, description="--", verbose=True):
+def assert_close(
+    ref: torch.Tensor,
+    tri: torch.Tensor,
+    maxtol: Optional[float] = None,
+    rmstol: Optional[float] = None,
+    description: str = "--",
+    verbose: bool = True,
+) -> None:
+    """
+    Asserts that two tensors are close within specified tolerances.
+    """
     if tri.dtype.itemsize == 1:
         ref_as_type = ref.to(tri.dtype)
         if ref.dtype == tri.dtype:
@@ -115,22 +161,22 @@ def assert_close(ref, tri, maxtol=None, rmstol=None, description="--", verbose=T
     if rmstol is None:
         rmstol = 4e-3
     """
-    Compare reference values against obtained values.
-    """
+	Compare reference values against obtained values.
+	"""
 
     # cast to float32:
     ref = ref.to(torch.float32).detach()
     tri = tri.to(torch.float32).detach()
-    assert ref.shape == tri.shape, (
-        f"Tensors must have same size {ref.shape=} {tri.shape=}"
-    )
+    assert (
+        ref.shape == tri.shape
+    ), f"Tensors must have same size {ref.shape=} {tri.shape=}"
 
     # deal with infinite elements:
     inf_mask_ref = torch.isinf(ref)
     inf_mask_tri = torch.isinf(tri)
-    assert torch.equal(inf_mask_ref, inf_mask_tri), (
-        "Tensor must have same infinite elements"
-    )
+    assert torch.equal(
+        inf_mask_ref, inf_mask_tri
+    ), "Tensor must have same infinite elements"
     refn = torch.where(inf_mask_ref, 0, ref)
     trin = torch.where(inf_mask_tri, 0, tri)
 
@@ -173,18 +219,24 @@ def assert_close(ref, tri, maxtol=None, rmstol=None, description="--", verbose=T
     assert rms_err <= rmstol
 
 
-def assert_indx_equal(ref, tri):
+def assert_indx_equal(ref: torch.Tensor, tri: torch.Tensor) -> None:
+    """
+    Asserts equality of tensor indices.
+    """
     assert_equal(ref, tri[: len(ref)])
     assert torch.all(tri[len(ref) :] == -1)
 
 
 def get_kernel_test_configs(
-    BLOCK_SIZE_M=32,
-    BLOCK_SIZE_N=32,
-    BLOCK_SIZE_K=32,
-    num_warps=4,
-    num_stages=2,
+    BLOCK_SIZE_M: int = 32,
+    BLOCK_SIZE_N: int = 32,
+    BLOCK_SIZE_K: int = 32,
+    num_warps: int = 4,
+    num_stages: int = 2,
 ) -> list[KernelConfig]:
+    """
+    Generates test configurations for kernel testing.
+    """
     configs_fwd = []
     configs_bwd_dX = []
     configs_bwd_dW = []
@@ -248,7 +300,10 @@ def remove_feature_flags(
     permute_y: bool = True,
     tma_loads: bool = True,
     tma_store: bool = True,
-):
+) -> None:
+    """
+    Filters kernel configurations based on feature flags.
+    """
     pruned_configs = []
     for config in kernel_configs:
         # Remove permute flags first:

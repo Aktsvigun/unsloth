@@ -19,13 +19,13 @@ from grouped_gemm.kernels.autotuning import (
 # Only account for the case when X is in expert order and we are permuting Y when fusing mul -- this precondition is checked in the interface
 @triton.jit
 def _grouped_gemm_forward_kernel(
-    x_ptr,
-    w_ptr,
-    y_ptr,
+    x_ptr: tl.tensor,
+    w_ptr: tl.tensor,
+    y_ptr: tl.tensor,
     # Variable depending on routed probs
-    m_sizes_ptr,
-    gather_indices_ptr,
-    topk_weights_ptr,
+    m_sizes_ptr: tl.tensor,
+    gather_indices_ptr: tl.tensor,
+    topk_weights_ptr: tl.tensor,
     # Constant problem shapes
     NUM_EXPERTS: tl.constexpr,
     NUM_TOKENS: tl.constexpr,
@@ -48,6 +48,36 @@ def _grouped_gemm_forward_kernel(
     acc_dtype: tl.constexpr = tl.float32,
     FLATTEN: tl.constexpr = True,
 ) -> None:
+    """
+    Triton kernel for grouped GEMM (General Matrix Multiplication) forward pass.
+
+    Args:
+            x_ptr (tl.tensor): Input tensor pointer for activations.
+            w_ptr (tl.tensor): Weight tensor pointer.
+            y_ptr (tl.tensor): Output tensor pointer.
+            m_sizes_ptr (tl.tensor): Pointer to tensor containing sizes of each expert's input.
+            gather_indices_ptr (tl.tensor): Pointer to tensor with indices for permutation.
+            topk_weights_ptr (tl.tensor): Pointer to tensor containing top-k weights.
+            NUM_EXPERTS (tl.constexpr): Total number of experts.
+            NUM_TOKENS (tl.constexpr): Total number of tokens.
+            TOPK (tl.constexpr): Number of experts selected per token.
+            N (tl.constexpr): Output dimension of each expert.
+            K (tl.constexpr): Input dimension of each expert.
+            NUM_SMS (tl.constexpr): Number of streaming multiprocessors.
+            BLOCK_SIZE_M (tl.constexpr): Block size for M dimension.
+            BLOCK_SIZE_N (tl.constexpr): Block size for N dimension.
+            BLOCK_SIZE_K (tl.constexpr): Block size for K dimension.
+            PERMUTE_X (tl.constexpr): Whether to permute input X.
+            PERMUTE_Y (tl.constexpr): Whether to permute output Y.
+            FUSE_MUL_PRE (tl.constexpr): Whether to fuse multiplication before GEMM.
+            FUSE_MUL_POST (tl.constexpr): Whether to fuse multiplication after GEMM.
+            USE_FAST_ACCUM (tl.constexpr): Whether to use fast accumulation.
+            USE_TMA_LOAD_W (tl.constexpr): Whether to use TMA for weight loading.
+            USE_TMA_LOAD_X (tl.constexpr): Whether to use TMA for input loading.
+            USE_TMA_STORE (tl.constexpr): Whether to use TMA for output storage.
+            acc_dtype (tl.constexpr): Accumulator data type.
+            FLATTEN (tl.constexpr): Whether to flatten computation across experts.
+    """
     tl.static_assert(K % BLOCK_SIZE_K == 0)
 
     TOTAL_TOKENS: tl.constexpr = NUM_TOKENS * TOPK
@@ -141,8 +171,8 @@ def _grouped_gemm_forward_kernel(
                 # Note the different strides between the two cases: the offsets for loading and storing are flipped and the strides must also be adjusted
                 if PERMUTE_X:
                     load_idx = (
-                        (expert_token_offsets // TOPK) * K
-                    )  # Permute on load from token -> expert order, divide by TOPK to index from original number of tokens
+                        expert_token_offsets // TOPK
+                    ) * K  # Permute on load from token -> expert order, divide by TOPK to index from original number of tokens
                     store_idx = (
                         indices_to_gather[:, None] * N
                     )  # Store in contiguous order

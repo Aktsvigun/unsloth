@@ -1,3 +1,4 @@
+from typing import Optional
 from unsloth.registry.registry import ModelInfo, ModelMeta, QuantType, _register_models
 
 _IS_LLAMA_3_1_REGISTERED = False
@@ -6,17 +7,75 @@ _IS_LLAMA_3_2_VISION_REGISTERED = False
 
 
 class LlamaModelInfo(ModelInfo):
+    """
+    Class for storing and managing information about Llama models.
+
+    Args:
+            construct_model_name: Class method that constructs a model name string based on various parameters.
+    """
+
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(
+        cls,
+        base_name: str,
+        version: str,
+        size: str,
+        quant_type: QuantType,
+        instruct_tag: Optional[str],
+    ) -> str:
+        """
+        Constructs a model name string in the format `{base_name}-{version}-{size}B`.
+
+        Args:
+                base_name (`str`): Base name of the model (e.g., 'Llama')
+                version (`str`): Version number of the model
+                size (`str`): Size of the model in billions of parameters
+                quant_type (`QuantType`): Quantization type for the model
+                instruct_tag (`Optional[str]`): Optional instruction-following tag
+
+        Returns:
+                `str`: Constructed model name
+        """
         key = f"{base_name}-{version}-{size}B"
-        return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
+        return super().construct_model_name(
+            base_name, version, size, quant_type, instruct_tag, key
+        )
 
 
 class LlamaVisionModelInfo(ModelInfo):
+    """
+    Class for storing and managing information about Llama vision models.
+
+    Args:
+            construct_model_name: Class method that constructs a model name string with 'Vision' suffix based on various parameters.
+    """
+
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(
+        cls,
+        base_name: str,
+        version: str,
+        size: str,
+        quant_type: QuantType,
+        instruct_tag: Optional[str],
+    ) -> str:
+        """
+        Constructs a model name string in the format `{base_name}-{version}-{size}B-Vision`.
+
+        Args:
+                base_name (`str`): Base name of the model (e.g., 'Llama')
+                version (`str`): Version number of the model
+                size (`str`): Size of the model in billions of parameters
+                quant_type (`QuantType`): Quantization type for the model
+                instruct_tag (`Optional[str]`): Optional instruction-following tag
+
+        Returns:
+                `str`: Constructed model name with 'Vision' suffix
+        """
         key = f"{base_name}-{version}-{size}B-Vision"
-        return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
+        return super().construct_model_name(
+            base_name, version, size, quant_type, instruct_tag, key
+        )
 
 
 # Llama 3.1
@@ -71,36 +130,72 @@ LlamaMeta_3_2_Vision = ModelMeta(
 )
 
 
-def register_llama_3_1_models(include_original_model: bool = False):
+def register_llama_3_1_models(include_original_model: bool = False) -> None:
+    """
+    Registers Llama 3.1 models in the model registry.
+
+    Args:
+            include_original_model (`bool`, optional): Whether to include the original unmodified model in the registry.
+                    Defaults to False.
+    """
     global _IS_LLAMA_3_1_REGISTERED
     if _IS_LLAMA_3_1_REGISTERED:
         return
     _register_models(LlamaMeta_3_1, include_original_model=include_original_model)
     _IS_LLAMA_3_1_REGISTERED = True
 
-def register_llama_3_2_models(include_original_model: bool = False):
+
+def register_llama_3_2_models(include_original_model: bool = False) -> None:
+    """
+    Registers Llama 3.2 models (both base and instruction-tuned versions) in the model registry.
+
+    Args:
+            include_original_model (`bool`, optional): Whether to include the original unmodified model in the registry.
+                    Defaults to False.
+    """
     global _IS_LLAMA_3_2_REGISTERED
     if _IS_LLAMA_3_2_REGISTERED:
         return
     _register_models(LlamaMeta_3_2_Base, include_original_model=include_original_model)
-    _register_models(LlamaMeta_3_2_Instruct, include_original_model=include_original_model)
+    _register_models(
+        LlamaMeta_3_2_Instruct, include_original_model=include_original_model
+    )
     _IS_LLAMA_3_2_REGISTERED = True
 
-def register_llama_3_2_vision_models(include_original_model: bool = False):
+
+def register_llama_3_2_vision_models(include_original_model: bool = False) -> None:
+    """
+    Registers Llama 3.2 vision models in the model registry.
+
+    Args:
+            include_original_model (`bool`, optional): Whether to include the original unmodified model in the registry.
+                    Defaults to False.
+    """
     global _IS_LLAMA_3_2_VISION_REGISTERED
     if _IS_LLAMA_3_2_VISION_REGISTERED:
         return
-    _register_models(LlamaMeta_3_2_Vision, include_original_model=include_original_model)
+    _register_models(
+        LlamaMeta_3_2_Vision, include_original_model=include_original_model
+    )
     _IS_LLAMA_3_2_VISION_REGISTERED = True
 
 
-def register_llama_models(include_original_model: bool = False):
+def register_llama_models(include_original_model: bool = False) -> None:
+    """
+    Registers all Llama models (3.1, 3.2 base, 3.2 instruction-tuned, and 3.2 vision) in the model registry.
+
+    Args:
+            include_original_model (`bool`, optional): Whether to include the original unmodified model in the registry.
+                    Defaults to False.
+    """
     register_llama_3_1_models(include_original_model=include_original_model)
     register_llama_3_2_models(include_original_model=include_original_model)
     register_llama_3_2_vision_models(include_original_model=include_original_model)
 
+
 if __name__ == "__main__":
     from unsloth.registry.registry import MODEL_REGISTRY, _check_model_info
+
     MODEL_REGISTRY.clear()
 
     register_llama_models(include_original_model=True)

@@ -47,8 +47,27 @@ SEED = 0
 # permute_y => permute the output of the grouped GEMM, only done for the second grouped GEMM
 # fuse_mul_post => fuse the multiplication of topk weights in the epilogue of the second grouped GEMM; only used for inference, not currently tested
 def check_valid_config(
-    permute_x, permute_y, use_W1, fuse_mul_post=False, is_backward=False, verbose=False
-):
+    permute_x: bool,
+    permute_y: bool,
+    use_W1: bool,
+    fuse_mul_post: bool = False,
+    is_backward: bool = False,
+    verbose: bool = False,
+) -> bool:
+    """
+    Check if the given configuration is valid for grouped GEMM operations.
+
+    Args:
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            fuse_mul_post (bool, optional): Whether to fuse the multiplication of topk weights in the epilogue.
+            is_backward (bool, optional): Whether the configuration is for a backward pass.
+            verbose (bool, optional): Whether to print verbose messages.
+
+    Returns:
+            bool: True if the configuration is valid, False otherwise.
+    """
     use_W2 = not use_W1
 
     if permute_x and permute_y:
@@ -117,7 +136,34 @@ def _test_grouped_gemm_forward(
     # Flag to manually enable TMA store
     allow_tma_store: bool = False,
     use_autograd: bool = False,
-):
+) -> None:
+    """
+    Test the forward pass of grouped GEMM operations.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            fuse_mul_post (bool, optional): Whether to fuse the multiplication of topk weights in the epilogue.
+            flatten (bool, optional): Whether to flatten the output.
+            use_tma_load_w (bool, optional): Whether to use TMA for loading weights.
+            use_tma_load_x (bool, optional): Whether to use TMA for loading input X.
+            use_tma_store (bool, optional): Whether to use TMA for storing the output.
+            BLOCK_SIZE_M (int, optional): Block size for M dimension.
+            BLOCK_SIZE_N (int, optional): Block size for N dimension.
+            BLOCK_SIZE_K (int, optional): Block size for K dimension.
+            num_warps (int, optional): Number of warps.
+            num_stages (int, optional): Number of stages.
+            autotune (bool, optional): Whether to autotune the kernel.
+            num_autotune_configs (int, optional): Number of autotune configurations.
+            allow_tma_store (bool, optional): Whether to allow TMA store.
+            use_autograd (bool, optional): Whether to use autograd for the test.
+
+    Returns:
+            None
+    """
     if not check_valid_config(
         permute_x, permute_y, use_W1=use_W1, fuse_mul_post=fuse_mul_post
     ):
@@ -147,13 +193,15 @@ def _test_grouped_gemm_forward(
     W = W1 if use_W1 else W2
 
     if use_W1:
-        assert X.shape == (num_tokens, K), (
-            f"X.shape: {X.shape}, num_tokens: {num_tokens}, K: {K}"
-        )
+        assert X.shape == (
+            num_tokens,
+            K,
+        ), f"X.shape: {X.shape}, num_tokens: {num_tokens}, K: {K}"
     else:
-        assert X.shape == (num_tokens * topk, N), (
-            f"X.shape: {X.shape}, num_tokens: {num_tokens}, topk: {topk}, N: {N}"
-        )
+        assert X.shape == (
+            num_tokens * topk,
+            N,
+        ), f"X.shape: {X.shape}, num_tokens: {num_tokens}, topk: {topk}, N: {N}"
 
     total_tokens = num_tokens * topk
     output_shape = (total_tokens, 2 * N) if use_W1 else (total_tokens, K)
@@ -174,9 +222,9 @@ def _test_grouped_gemm_forward(
 
     Xref = Xperm
 
-    assert Xperm.shape == (total_tokens, K) if use_W1 else (total_tokens, N), (
-        f"Xperm.shape: {Xperm.shape}, total_tokens: {total_tokens}, K: {K}"
-    )
+    assert (
+        Xperm.shape == (total_tokens, K) if use_W1 else (total_tokens, N)
+    ), f"Xperm.shape: {Xperm.shape}, total_tokens: {total_tokens}, K: {K}"
 
     ref_output = torch_grouped_gemm(X=Xref, W=W, m_sizes=expert_token_counts)
 
@@ -262,9 +310,9 @@ def _test_grouped_gemm_forward(
             test_output = unpermute(test_output, gather_indices)
         ref_output = ref_output * topk_weights[:, None]
 
-    assert torch.allclose(ref_output, test_output, atol=atol, rtol=rtol), (
-        f"Grouped gemm forward failed: {(ref_output - test_output).abs().max().item():.6f}"
-    )
+    assert torch.allclose(
+        ref_output, test_output, atol=atol, rtol=rtol
+    ), f"Grouped gemm forward failed: {(ref_output - test_output).abs().max().item():.6f}"
 
 
 # NOTE: Fuse multiplication of topk weights is only supported for inference and not training, although this may change in the future; not currently tested.
@@ -287,7 +335,19 @@ def test_grouped_gemm_forward_manual(
     model_config: ModelConfig,
     kernel_config: KernelConfigForward,
     use_W1: bool,
-):
+) -> None:
+    """
+    Test the forward pass of grouped GEMM operations with manual kernel configuration.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            kernel_config (KernelConfigForward): Configuration for the kernel.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_forward(
         data_config=data_config,
         model_config=model_config,
@@ -315,7 +375,19 @@ def test_grouped_gemm_forward_manual_autograd(
     model_config: ModelConfig,
     kernel_config: KernelConfigForward,
     use_W1: bool,
-):
+) -> None:
+    """
+    Test the forward pass of grouped GEMM operations with manual kernel configuration and autograd.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            kernel_config (KernelConfigForward): Configuration for the kernel.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_forward(
         data_config=data_config,
         model_config=model_config,
@@ -350,7 +422,21 @@ def test_grouped_gemm_forward_autotune(
     permute_y: bool,
     use_W1: bool,
     num_autotune_configs: int,
-):
+) -> None:
+    """
+    Test the forward pass of grouped GEMM operations with autotuned kernel configuration.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            num_autotune_configs (int): Number of autotune configurations.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_forward(
         data_config=data_config,
         model_config=model_config,
@@ -388,7 +474,21 @@ def test_grouped_gemm_forward_autotune_autograd(
     permute_y: bool,
     use_W1: bool,
     num_autotune_configs: int,
-):
+) -> None:
+    """
+    Test the forward pass of grouped GEMM operations with autotuned kernel configuration and autograd.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            num_autotune_configs (int): Number of autotune configurations.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_forward(
         data_config=data_config,
         model_config=model_config,
@@ -414,24 +514,24 @@ We can also fuse the unpermutation of tokens after the second grouped GEMM to re
 
 Hence the following conditions:
 - If use_W1 there are two cases:
-    - permute_x is False and topk > 1:
-    - dX_test is still in permuted order and has shape (total_tokens, K)
-    - it needs to be unpermuted and summed across topk before comparing to ref_grad
+	- permute_x is False and topk > 1:
+	- dX_test is still in permuted order and has shape (total_tokens, K)
+	- it needs to be unpermuted and summed across topk before comparing to ref_grad
 - permute_x is True:
-    - dX_test is already unpermuted and summed across topk with shape (num_tokens, K)
-    - no further processing is needed
+	- dX_test is already unpermuted and summed across topk with shape (num_tokens, K)
+	- no further processing is needed
 - permute_x is False and topk == 1:
-    - dX_test needs to be permuted, no need to sum since topk == 1
+	- dX_test needs to be permuted, no need to sum since topk == 1
 
 - If use_W2:
-    - permute_x is always False
-    - if permute_y:
-        - grad_output needs to be unpermuted before passing to grouped_gemm_dX
-        - dX_test is permuted and has shape (total_tokens, N)
-        - it needs to be unpermuted before comparing to ref_grad or can be compared directly to Xperm.grad
-    - if not permute_y:
-        - dX_test is not permuted and has shape (total_tokens, N)
-        - no further processing is needed
+	- permute_x is always False
+	- if permute_y:
+		- grad_output needs to be unpermuted before passing to grouped_gemm_dX
+		- dX_test is permuted and has shape (total_tokens, N)
+		- it needs to be unpermuted before comparing to ref_grad or can be compared directly to Xperm.grad
+	- if not permute_y:
+		- dX_test is not permuted and has shape (total_tokens, N)
+		- no further processing is needed
 """
 
 
@@ -455,7 +555,34 @@ def _test_grouped_gemm_backward_dX(
     allow_tma_store: bool = False,
     use_autograd: bool = False,
     fuse_mul_post: bool = False,
-):
+) -> None:
+    """
+    Test the backward pass for input gradient (dX) of grouped GEMM operations.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_tma_load_dy (bool, optional): Whether to use TMA for loading gradient output.
+            use_tma_load_w (bool, optional): Whether to use TMA for loading weights.
+            use_tma_store (bool, optional): Whether to use TMA for storing the output.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            autotune (bool, optional): Whether to autotune the kernel.
+            num_autotune_configs (int, optional): Number of autotune configurations.
+            BLOCK_SIZE_M (int, optional): Block size for M dimension.
+            BLOCK_SIZE_N (int, optional): Block size for N dimension.
+            BLOCK_SIZE_K (int, optional): Block size for K dimension.
+            num_warps (int, optional): Number of warps.
+            num_stages (int, optional): Number of stages.
+            flatten (bool, optional): Whether to flatten the output.
+            allow_tma_store (bool, optional): Whether to allow TMA store.
+            use_autograd (bool, optional): Whether to use autograd for the test.
+            fuse_mul_post (bool, optional): Whether to fuse the multiplication of topk weights in the epilogue.
+
+    Returns:
+            None
+    """
     if not check_valid_config(permute_x, permute_y, use_W1=use_W1, is_backward=True):
         pytest.skip(
             f"Skipping test due to invalid config: {permute_x=} {permute_y=} {use_W1=}"
@@ -501,13 +628,15 @@ def _test_grouped_gemm_backward_dX(
     W = W1 if use_W1 else W2
 
     if use_W1:
-        assert X.shape == (num_tokens, K), (
-            f"X.shape: {X.shape}, num_tokens: {num_tokens}, K: {K}"
-        )
+        assert X.shape == (
+            num_tokens,
+            K,
+        ), f"X.shape: {X.shape}, num_tokens: {num_tokens}, K: {K}"
     else:
-        assert X.shape == (total_tokens, N), (
-            f"X.shape: {X.shape}, total_tokens: {total_tokens}, N: {N}"
-        )
+        assert X.shape == (
+            total_tokens,
+            N,
+        ), f"X.shape: {X.shape}, total_tokens: {total_tokens}, N: {N}"
 
     W_test = W.detach().clone().requires_grad_(True)
 
@@ -533,9 +662,9 @@ def _test_grouped_gemm_backward_dX(
 
     output_shape = (total_tokens, 2 * N) if use_W1 else (total_tokens, K)
     ref_output = torch_grouped_gemm(X=Xperm, W=W, m_sizes=expert_token_counts)
-    assert ref_output.shape == output_shape, (
-        f"ref_output.shape: {ref_output.shape}, output_shape: {output_shape}"
-    )
+    assert (
+        ref_output.shape == output_shape
+    ), f"ref_output.shape: {ref_output.shape}, output_shape: {output_shape}"
 
     if permute_y:
         ref_output = unpermute(ref_output, gather_indices)
@@ -613,35 +742,35 @@ def _test_grouped_gemm_backward_dX(
             is_first_gemm=use_W1,
             dX_only=True,
         )
-        assert test_output.shape == ref_output.shape, (
-            f"test_output.shape: {test_output.shape}, ref_output.shape: {ref_output.shape}"
-        )
-        assert torch.allclose(test_output, ref_output, atol=atol, rtol=rtol), (
-            f"Grouped gemm backward_dX forward outputs mismatch: {(test_output - ref_output).abs().max().item():.6f}"
-        )
+        assert (
+            test_output.shape == ref_output.shape
+        ), f"test_output.shape: {test_output.shape}, ref_output.shape: {ref_output.shape}"
+        assert torch.allclose(
+            test_output, ref_output, atol=atol, rtol=rtol
+        ), f"Grouped gemm backward_dX forward outputs mismatch: {(test_output - ref_output).abs().max().item():.6f}"
         test_output.backward(grad_output)
         assert X_.grad is not None
 
         # NOTE:need to handle grad differenlty in this case due to errors arising to do how torch autograd handles unpermute and sum reduction
         # the grad of Xperm unpermuted and reduced across topk should match X_.grad
         # However, both will have a numerical difference with that of ref_grad
-        # This is due to the fact that torch autograd handles unpermute and sum reduction differently see: https://discuss.pytorch.org/t/permute-unpermute-gradient/219557    else:
+        # This is due to the fact that torch autograd handles unpermute and sum reduction differently see: https://discuss.pytorch.org/t/permute-unpermute-gradient/219557	else:
         if permute_x and use_W1:
             X_grad_unperm = unpermute(Xperm.grad, gather_indices)
             manual_grad_check = X_grad_unperm.view(num_tokens, topk, K).sum(dim=1)
-            assert manual_grad_check.shape == X_.grad.shape, (
-                f"manual_grad_check.shape: {manual_grad_check.shape}, X_.grad.shape: {X_.grad.shape}"
-            )
-            assert torch.allclose(manual_grad_check, X_.grad, atol=atol, rtol=rtol), (
-                f"Grouped gemm backward_dX forward outputs mismatch: {(manual_grad_check - X_.grad).abs().max().item():.6f}"
-            )
+            assert (
+                manual_grad_check.shape == X_.grad.shape
+            ), f"manual_grad_check.shape: {manual_grad_check.shape}, X_.grad.shape: {X_.grad.shape}"
+            assert torch.allclose(
+                manual_grad_check, X_.grad, atol=atol, rtol=rtol
+            ), f"Grouped gemm backward_dX forward outputs mismatch: {(manual_grad_check - X_.grad).abs().max().item():.6f}"
             manual_diff = (X_.grad - manual_grad_check).abs().max().item()
             autograd_diff = (X_.grad - X.grad).abs().max().item()
             print(f"manual_diff: {manual_diff:.6f}, autograd_diff: {autograd_diff:.6f}")
         else:
-            assert torch.allclose(X_.grad, ref_grad, atol=atol, rtol=rtol), (
-                f"Grouped gemm backward_dX forward outputs mismatch: {(X_.grad - ref_grad).abs().max().item():.6f}"
-            )
+            assert torch.allclose(
+                X_.grad, ref_grad, atol=atol, rtol=rtol
+            ), f"Grouped gemm backward_dX forward outputs mismatch: {(X_.grad - ref_grad).abs().max().item():.6f}"
         return
     else:
         dX_test = grouped_gemm_dX(
@@ -670,14 +799,14 @@ def _test_grouped_gemm_backward_dX(
     if permute_x and use_W1:
         ref_grad = unpermute(ref_grad, gather_indices)
 
-    assert ref_grad.shape == dX_test.shape, (
-        f"Grouped gemm manual backward_dX outputs mismatch: ref_grad: {ref_grad.shape}, dX_test: {dX_test.shape}"
-    )
+    assert (
+        ref_grad.shape == dX_test.shape
+    ), f"Grouped gemm manual backward_dX outputs mismatch: ref_grad: {ref_grad.shape}, dX_test: {dX_test.shape}"
     diff = (ref_grad - dX_test).abs().max().item()
 
-    assert torch.allclose(ref_grad, dX_test, atol=atol, rtol=rtol), (
-        f"Grouped gemm manual backward_dX outputs mismatch: {diff:.6f}"
-    )
+    assert torch.allclose(
+        ref_grad, dX_test, atol=atol, rtol=rtol
+    ), f"Grouped gemm manual backward_dX outputs mismatch: {diff:.6f}"
 
     if permute_x and use_W1:
         # Show that reduction results in diffs
@@ -715,7 +844,19 @@ def test_grouped_gemm_backward_dX_manual(
     model_config: ModelConfig,
     kernel_config: KernelConfigBackward_dX,
     use_W1: bool,
-):
+) -> None:
+    """
+    Test the backward pass for input gradient (dX) of grouped GEMM operations with manual kernel configuration.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            kernel_config (KernelConfigBackward_dX): Configuration for the kernel.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_backward_dX(
         data_config=data_config,
         model_config=model_config,
@@ -744,7 +885,19 @@ def test_grouped_gemm_backward_dX_manual_autograd(
     model_config: ModelConfig,
     kernel_config: KernelConfigBackward_dX,
     use_W1: bool,
-):
+) -> None:
+    """
+    Test the backward pass for input gradient (dX) of grouped GEMM operations with manual kernel configuration and autograd.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            kernel_config (KernelConfigBackward_dX): Configuration for the kernel.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_backward_dX(
         data_config=data_config,
         model_config=model_config,
@@ -779,7 +932,21 @@ def test_grouped_gemm_backward_dX_autotune(
     permute_y: bool,
     use_W1: bool,
     num_autotune_configs: int,
-):
+) -> None:
+    """
+    Test the backward pass for input gradient (dX) of grouped GEMM operations with autotuned kernel configuration.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            num_autotune_configs (int): Number of autotune configurations.
+
+    Returns:
+            None
+    """
     # TMA loads / stores will be autotuned
     _test_grouped_gemm_backward_dX(
         data_config=data_config,
@@ -818,7 +985,21 @@ def test_grouped_gemm_backward_dX_autotune_autograd(
     permute_y: bool,
     use_W1: bool,
     num_autotune_configs: int,
-):
+) -> None:
+    """
+    Test the backward pass for input gradient (dX) of grouped GEMM operations with autotuned kernel configuration and autograd.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            num_autotune_configs (int): Number of autotune configurations.
+
+    Returns:
+            None
+    """
     # TMA loads / stores will be autotuned
     _test_grouped_gemm_backward_dX(
         data_config=data_config,
@@ -853,7 +1034,35 @@ def _test_grouped_gemm_backward_dW(
     debug: bool = False,
     fuse_mul_post: bool = False,  # Unused for backward_dW
     use_autograd: bool = False,
-):
+) -> None:
+    """
+    Test the backward pass for weight gradient (dW) of grouped GEMM operations.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            use_tma_load_dy (bool, optional): Whether to use TMA for loading gradient output.
+            use_tma_load_x (bool, optional): Whether to use TMA for loading input X.
+            use_tma_store (bool, optional): Whether to use TMA for storing the output.
+            BLOCK_SIZE_M (int, optional): Block size for M dimension.
+            BLOCK_SIZE_N (int, optional): Block size for N dimension.
+            BLOCK_SIZE_K (int, optional): Block size for K dimension.
+            num_warps (int, optional): Number of warps.
+            num_stages (int, optional): Number of stages.
+            flatten (bool, optional): Whether to flatten the output.
+            autotune (bool, optional): Whether to autotune the kernel.
+            num_autotune_configs (int, optional): Number of autotune configurations.
+            allow_tma_store (bool, optional): Whether to allow TMA store.
+            debug (bool, optional): Whether to enable debug mode.
+            fuse_mul_post (bool, optional): Whether to fuse the multiplication of topk weights in the epilogue.
+            use_autograd (bool, optional): Whether to use autograd for the test.
+
+    Returns:
+            None
+    """
     if not check_valid_config(
         permute_x,
         permute_y,
@@ -889,13 +1098,15 @@ def _test_grouped_gemm_backward_dW(
     W = W1 if use_W1 else W2
 
     if use_W1:
-        assert X.shape == (num_tokens, K), (
-            f"X.shape: {X.shape}, num_tokens: {num_tokens}, K: {K}"
-        )
+        assert X.shape == (
+            num_tokens,
+            K,
+        ), f"X.shape: {X.shape}, num_tokens: {num_tokens}, K: {K}"
     else:
-        assert X.shape == (num_tokens * topk, N), (
-            f"X.shape: {X.shape}, num_tokens: {num_tokens}, topk: {topk}, N: {N}"
-        )
+        assert X.shape == (
+            num_tokens * topk,
+            N,
+        ), f"X.shape: {X.shape}, num_tokens: {num_tokens}, topk: {topk}, N: {N}"
 
     total_tokens = num_tokens * topk
     output_shape = (total_tokens, 2 * N) if use_W1 else (total_tokens, K)
@@ -1011,12 +1222,12 @@ def _test_grouped_gemm_backward_dW(
             is_first_gemm=use_W1,
             dW_only=True,
         )
-        assert test_output.shape == ref_output.shape, (
-            f"Grouped gemm autograd backward_dW outputs mismatch: {test_output.shape} != {ref_output.shape}"
-        )
-        assert torch.allclose(test_output, ref_output, atol=atol, rtol=rtol), (
-            f"Grouped gemm autograd backward_dW forward outputs mismatch: {test_output.shape} != {ref_output.shape}"
-        )
+        assert (
+            test_output.shape == ref_output.shape
+        ), f"Grouped gemm autograd backward_dW outputs mismatch: {test_output.shape} != {ref_output.shape}"
+        assert torch.allclose(
+            test_output, ref_output, atol=atol, rtol=rtol
+        ), f"Grouped gemm autograd backward_dW forward outputs mismatch: {test_output.shape} != {ref_output.shape}"
         test_output.backward(grad_output)
         assert W_test.grad is not None
         dW_test = W_test.grad
@@ -1041,9 +1252,9 @@ def _test_grouped_gemm_backward_dW(
             autotune=autotune,
             debug=debug,
         )
-    assert W.grad.shape == dW_test.shape, (
-        f"Grouped gemm manual backward_dW outputs mismatch: W.grad: {W.grad.shape}, dW_test: {dW_test.shape}"
-    )
+    assert (
+        W.grad.shape == dW_test.shape
+    ), f"Grouped gemm manual backward_dW outputs mismatch: W.grad: {W.grad.shape}, dW_test: {dW_test.shape}"
 
     if debug:
         with torch.no_grad():
@@ -1058,14 +1269,14 @@ def _test_grouped_gemm_backward_dW(
                 print(f"Expert {i} diff: {expert_diff:.6f}")
 
             diff = (W.grad - dW_test).abs().max().item()
-            assert False, (
-                f"Grouped gemm manual backward_dW outputs mismatch: {diff:.6f}"
-            )
+            assert (
+                False
+            ), f"Grouped gemm manual backward_dW outputs mismatch: {diff:.6f}"
     else:
         diff = (W.grad - dW_test).abs().max().item()
-        assert torch.allclose(W.grad, dW_test, atol=atol, rtol=rtol), (
-            f"Grouped gemm manual backward_dW outputs mismatch: {diff:.6f}"
-        )
+        assert torch.allclose(
+            W.grad, dW_test, atol=atol, rtol=rtol
+        ), f"Grouped gemm manual backward_dW outputs mismatch: {diff:.6f}"
 
 
 @pytest.mark.parametrize(
@@ -1088,7 +1299,20 @@ def test_grouped_gemm_backward_dW_manual(
     kernel_config: KernelConfig,
     use_W1: bool,
     debug: bool = False,
-):
+) -> None:
+    """
+    Test the backward pass for weight gradient (dW) of grouped GEMM operations with manual kernel configuration.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            kernel_config (KernelConfig): Configuration for the kernel.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            debug (bool, optional): Whether to enable debug mode.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_backward_dW(
         data_config=data_config,
         model_config=model_config,
@@ -1118,7 +1342,20 @@ def test_grouped_gemm_backward_dW_manual_autograd(
     kernel_config: KernelConfig,
     use_W1: bool,
     debug: bool = False,
-):
+) -> None:
+    """
+    Test the backward pass for weight gradient (dW) of grouped GEMM operations with manual kernel configuration and autograd.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            kernel_config (KernelConfig): Configuration for the kernel.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            debug (bool, optional): Whether to enable debug mode.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_backward_dW(
         data_config=data_config,
         model_config=model_config,
@@ -1153,7 +1390,21 @@ def test_grouped_gemm_backward_dW_autotune(
     permute_y: bool,
     use_W1: bool,
     num_autotune_configs: int,
-):
+) -> None:
+    """
+    Test the backward pass for weight gradient (dW) of grouped GEMM operations with autotuned kernel configuration.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            num_autotune_configs (int): Number of autotune configurations.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_backward_dW(
         data_config=data_config,
         model_config=model_config,
@@ -1191,7 +1442,21 @@ def test_grouped_gemm_backward_dW_autotune_autograd(
     permute_y: bool,
     use_W1: bool,
     num_autotune_configs: int,
-):
+) -> None:
+    """
+    Test the backward pass for weight gradient (dW) of grouped GEMM operations with autotuned kernel configuration and autograd.
+
+    Args:
+            data_config (DataConfig): Configuration for the input data.
+            model_config (ModelConfig): Configuration for the model.
+            permute_x (bool): Whether to permute the input tensor X.
+            permute_y (bool): Whether to permute the output tensor Y.
+            use_W1 (bool): Whether to use the first grouped GEMM in a fused MoE MLP.
+            num_autotune_configs (int): Number of autotune configurations.
+
+    Returns:
+            None
+    """
     _test_grouped_gemm_backward_dW(
         data_config=data_config,
         model_config=model_config,

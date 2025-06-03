@@ -1,3 +1,4 @@
+from typing import Union
 import torch
 import triton
 import triton.language as tl
@@ -13,8 +14,8 @@ from grouped_gemm.kernels.autotuning import (
 dX backward kernel
 
 - Shapes
-    - the forward pass input X shape is [NUM_TOKENS, K] if permute_x else [NUM_TOKENS * TOPK, K]; output y is [NUM_TOKENS * TOPK, N]
-    - the backward pass input dy shape is [NUM_TOKENS * TOPK, N], reduce across N, output dX is [NUM_TOKENS * TOPK, K]
+	- the forward pass input X shape is [NUM_TOKENS, K] if permute_x else [NUM_TOKENS * TOPK, K]; output y is [NUM_TOKENS * TOPK, N]
+	- the backward pass input dy shape is [NUM_TOKENS * TOPK, N], reduce across N, output dX is [NUM_TOKENS * TOPK, K]
 - Note that in the backward pass, the output size is still [NUM_TOKENS * TOPK, K] since we still need to accumulate gradients for each expert chosen by the token in a post-processing step.
 
 `permute_x` notes:
@@ -29,8 +30,8 @@ dX backward kernel
 
 `fused_mul` notes:
 - In the forward pass, if we used the multiplication of topk weights (e.g., in the second grouped GEMM in fused MoE MLP), we need to make a few additional changes:
-    1) We load topk_weights in natural (token) order.  Since we only enable `fuse_mul` when permuting on store (`permute_y`), we multiply grad_output by topk_weights before backpropagating
-    2) We need to calculate the gradient of the topk_weights.  This gets messy since we need do an additioanl elementwise multiplication in the GEMM main loop and then write out in unpermuted order.  For now, we do not fuse this step but calculate as a simple
+	1) We load topk_weights in natural (token) order.  Since we only enable `fuse_mul` when permuting on store (`permute_y`), we multiply grad_output by topk_weights before backpropagating
+	2) We need to calculate the gradient of the topk_weights.  This gets messy since we need do an additioanl elementwise multiplication in the GEMM main loop and then write out in unpermuted order.  For now, we do not fuse this step but calculate as a simple
 
 Invalid combinations:
 - permute_y and use_tma_load: permuting y on store in forward -> load in permuted order in backward, therefore can't use TMA load (unless Blackwell which supports gather / scatter TMA)
@@ -43,11 +44,11 @@ TODO:
 
 @triton.jit
 def _grouped_gemm_dX_kernel(
-    dY_ptr,  # [M_total, N]
-    w_ptr,  # [E, N, K]
-    dX_ptr,  # [M_total, K]
-    gather_indices_ptr,
-    m_sizes_ptr,
+    dY_ptr: Union[torch.Tensor, TensorPointerType],  # [M_total, N]
+    w_ptr: Union[torch.Tensor, TensorPointerType],  # [E, N, K]
+    dX_ptr: Union[torch.Tensor, TensorPointerType],  # [M_total, K]
+    gather_indices_ptr: Union[torch.Tensor, TensorPointerType],
+    m_sizes_ptr: Union[torch.Tensor, TensorPointerType],
     # problem sizes
     NUM_EXPERTS: tl.constexpr,
     NUM_TOKENS: tl.constexpr,
@@ -281,19 +282,19 @@ notes on TMA loading:
 - if we're TMA loading both X and dY, then we need to mask along the M dimension
 to account for expert boundaries
 - we can either
-    - define TMA descriptors within the outer for loop to predicate loads
-    or
-    - mask along M after loading
+	- define TMA descriptors within the outer for loop to predicate loads
+	or
+	- mask along M after loading
 """
 
 
 @triton.jit
 def _grouped_gemm_dW_kernel(
-    x_ptr,
-    dY_ptr,
-    dW_ptr,
-    m_sizes_ptr,
-    gather_indices_ptr,
+    x_ptr: Union[torch.Tensor, TensorPointerType],
+    dY_ptr: Union[torch.Tensor, TensorPointerType],
+    dW_ptr: Union[torch.Tensor, TensorPointerType],
+    m_sizes_ptr: Union[torch.Tensor, TensorPointerType],
+    gather_indices_ptr: Union[torch.Tensor, TensorPointerType],
     # problem sizes
     NUM_TOKENS: tl.constexpr,
     TOPK: tl.constexpr,
@@ -434,8 +435,8 @@ def _grouped_gemm_dW_kernel(
                             # Note the different strides between the two cases: the offsets for loading and storing are flipped and the strides must also be adjusted
                             if PERMUTE_X:
                                 x_row_load_idx = (
-                                    (expert_token_offsets // TOPK) * K
-                                )  # Permute on load from token -> expert order, divide by TOPK to index from original number of tokens
+                                    expert_token_offsets // TOPK
+                                ) * K  # Permute on load from token -> expert order, divide by TOPK to index from original number of tokens
                                 dY_row_load_idx = m_offsets[:, None] * N
                             else:
                                 x_row_load_idx = (

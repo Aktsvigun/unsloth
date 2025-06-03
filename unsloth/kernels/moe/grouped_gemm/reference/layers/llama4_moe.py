@@ -29,6 +29,33 @@ Reference implementation of Llama4 MoE block using triton grouped gemm.
 
 @dataclass
 class Llama4MoeResult:
+    """
+    A dataclass that holds the intermediate and final outputs of the Llama4 MoE block during forward pass.
+
+    Args:
+            token_counts_by_expert (`torch.Tensor`):
+                    Number of tokens assigned to each expert.
+            gather_indices (`torch.Tensor`):
+                    Indices used to gather tokens for each expert.
+            topk_weights (`torch.Tensor`):
+                    Weights assigned to the top-k experts for each token.
+            hidden_states_after_weight_merge (`torch.Tensor`):
+                    Hidden states after merging with the top-k weights.
+            first_gemm (`torch.Tensor`):
+                    Output of the first grouped GEMM operation.
+            intermediate (`torch.Tensor`):
+                    Intermediate output after activation and multiplication.
+            second_gemm (`torch.Tensor`):
+                    Output of the second grouped GEMM operation.
+            hidden_states_unpermute (`torch.Tensor`):
+                    Unpermuted hidden states after the second GEMM.
+            shared_expert_out (`torch.Tensor`):		Output from the shared expert.
+            final_out (`torch.Tensor`):
+                    Final output after combining the expert outputs and shared expert output.
+            router_logits (`torch.Tensor`, *optional*):
+                    Logits from the router used for expert selection.
+    """
+
     token_counts_by_expert: torch.Tensor
     gather_indices: torch.Tensor
     topk_weights: torch.Tensor
@@ -43,14 +70,28 @@ class Llama4MoeResult:
 
 
 class Llama4GroupedGemmTextMoe(Llama4TextMoe):
+    """
+    A class implementing the Llama4 Mixture of Experts (MoE) block using grouped GEMM operations.
+
+    Args:
+            config (`Llama4TextConfig`):
+                    Configuration object for the Llama4 model.
+            overlap_router_shared (`bool`, *optional*, defaults to `False`):
+                    Whether to overlap the router and shared expert computation.
+            verbose (`bool`, *optional*, defaults to `False`):
+                    Whether to print verbose information.
+            debug (`bool`, *optional*, defaults to `False`):
+                    Whether to enable debug mode.
+    """
+
     EXPERT_WEIGHT_NAMES = ["experts.gate_up_proj", "experts.down_proj"]
 
     def __init__(
         self,
         config: Llama4TextConfig,
-        overlap_router_shared=False,
-        verbose=False,
-        debug=False,
+        overlap_router_shared: bool = False,
+        verbose: bool = False,
+        debug: bool = False,
     ):
         super().__init__(config)
         self.overlap_router_shared = overlap_router_shared
@@ -59,9 +100,9 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
 
         # Permute in-place expert weights
         E, K, N = self.num_experts, self.hidden_dim, self.experts.expert_dim
-        assert self.experts.gate_up_proj.shape == torch.Size([E, K, 2 * N]), (
-            f"{self.experts.gate_up_proj.shape} != {[E, K, 2 * N]}"
-        )
+        assert self.experts.gate_up_proj.shape == torch.Size(
+            [E, K, 2 * N]
+        ), f"{self.experts.gate_up_proj.shape} != {[E, K, 2 * N]}"
         permuted_shape = [E, 2 * N, K]
         permuted_stride = [2 * N * K, K, 1]
         if verbose:
@@ -76,9 +117,9 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
                 f"{self.experts.gate_up_proj.shape}:{self.experts.gate_up_proj.stride()}"
             )
 
-        assert self.experts.down_proj.shape == torch.Size([E, N, K]), (
-            f"{self.experts.down_proj.shape} != {[E, N, K]}"
-        )
+        assert self.experts.down_proj.shape == torch.Size(
+            [E, N, K]
+        ), f"{self.experts.down_proj.shape} != {[E, N, K]}"
         permuted_shape = [E, K, N]
         permuted_stride = [K * N, N, 1]
         if verbose:
@@ -98,7 +139,17 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
             self.shared_expert_end_event = torch.cuda.Event()
 
     @torch.no_grad
-    def copy_weights(self, other: Llama4TextMoe):
+    def copy_weights(self, other: Llama4TextMoe) -> Llama4GroupedGemmTextMoe:
+        """
+        Copies weights from another Llama4TextMoe model to this model.
+
+        Args:
+                other (`Llama4TextMoe`):
+                        The source model from which to copy weights.
+
+        Returns:
+                `Llama4GroupedGemmTextMoe`: The updated model with copied weights.
+        """
         for name, param_to_copy in other.named_parameters():
             if self.verbose:
                 print(f"Copying {name} with shape {param_to_copy.shape}")
@@ -107,14 +158,24 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
             if any(n in name for n in self.EXPERT_WEIGHT_NAMES):
                 param_to_copy = param_to_copy.permute(0, 2, 1)
 
-            assert param.shape == param_to_copy.shape, (
-                f"{param.shape} != {param_to_copy.shape}"
-            )
+            assert (
+                param.shape == param_to_copy.shape
+            ), f"{param.shape} != {param_to_copy.shape}"
             param.copy_(param_to_copy)
 
         return self
 
-    def check_weights(self, other: Llama4TextMoe):
+    def check_weights(self, other: Llama4TextMoe) -> None:
+        """
+        Checks if the weights of this model match those of another Llama4TextMoe model.
+
+        Args:
+                other (`Llama4TextMoe`):
+                        The model to compare weights with.
+
+        Raises:
+                AssertionError: If any weights do not match or are not contiguous.
+        """
         for name, other_param in other.named_parameters():
             if any(n in name for n in self.EXPERT_WEIGHT_NAMES):
                 other_param = other_param.permute(0, 2, 1)
@@ -123,12 +184,34 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
             assert param.is_contiguous(), f"{name} not contiguous!"
 
     def act_and_mul(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Applies activation function and element-wise multiplication to the input tensor.
+
+        Args:
+                x (`torch.Tensor`):
+                        Input tensor to process.
+
+        Returns:
+                `torch.Tensor`: The result after activation and multiplication.
+        """
         assert x.shape[-1] == 2 * self.experts.expert_dim
         gate_proj = x[..., : self.experts.expert_dim]
         up_proj = x[..., self.experts.expert_dim :]
         return self.experts.act_fn(gate_proj) * up_proj
 
     def run_router(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the router to select experts for each token.
+
+        Args:
+                hidden_states (`torch.Tensor`):
+                        Input hidden states to process.
+
+        Returns:
+                `torch.Tensor`: Router logits.
+                `torch.Tensor`: Routing weights after applying sigmoid.
+                `torch.Tensor`: Indices of selected experts.
+        """
         # router_logits: (batch * sequence_length, n_experts)
         hidden_states = hidden_states.view(-1, self.hidden_dim)
         router_logits = self.router(hidden_states)
@@ -143,6 +226,17 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
     def get_token_counts_and_gather_indices(
         self, selected_experts: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes token counts per expert and gather indices for expert routing.
+
+        Args:
+                selected_experts (`torch.Tensor`):
+                        Indices of selected experts for each token.
+
+        Returns:
+                `torch.Tensor`: Token counts per expert.
+                `torch.Tensor`: Gather indices for expert routing.
+        """
         token_counts_by_expert, gather_indices = get_routing_indices(
             selected_experts, self.num_experts
         )
@@ -164,9 +258,10 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
         router_logits, routing_weights, selected_experts = self.run_router(
             hidden_states
         )
-        assert routing_weights.shape == (num_tokens, self.top_k), (
-            f"{routing_weights.shape} != {(num_tokens, self.top_k)}"
-        )
+        assert routing_weights.shape == (
+            num_tokens,
+            self.top_k,
+        ), f"{routing_weights.shape} != {(num_tokens, self.top_k)}"
 
         if self.overlap_router_shared:
             with torch.cuda.stream(self.shared_expert_stream):
@@ -250,10 +345,38 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
 
 
 class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
+    """
+    A class implementing the Llama4 Mixture of Experts (MoE) block using Triton for grouped GEMM operations.
+
+    Args:
+            config (`Llama4TextConfig`):
+                    Configuration object for the Llama4 model.
+            overlap_router_shared (`bool`, *optional*, defaults to `False`):
+                    Whether to overlap the router and shared expert computation.
+            permute_x (`bool`, *optional*, defaults to `False`):
+                    Whether to permute the input tensor for the first GEMM.
+            permute_y (`bool`, *optional*, defaults to `True`):
+                    Whether to permute the output tensor for the second GEMM.
+            autotune (`bool`, *optional*, defaults to `True`):
+                    Whether to use autotuning for kernel selection.
+            kernel_config_fwd (`KernelConfigForward`, *optional*):
+                    Configuration for the forward kernel.
+            kernel_config_bwd_dW (`KernelConfigBackward_dW`, *optional*):
+                    Configuration for the backward kernel for weight gradients.
+            kernel_config_bwd_dX (`KernelConfigBackward_dX`, *optional*):
+                    Configuration for the backward kernel for input gradients.
+            dW_only (`bool`, *optional*, defaults to `False`):
+                    Whether to compute only weight gradients.
+            dX_only (`bool`, *optional*, defaults to `False`):
+                    Whether to compute only input gradients.
+            verbose (`bool`, *optional*, defaults to `False`):
+                    Whether to print verbose information.
+    """
+
     def __init__(
         self,
         config: Llama4TextConfig,
-        overlap_router_shared=False,
+        overlap_router_shared: bool = False,
         permute_x: bool = False,
         permute_y: bool = True,
         autotune: bool = True,
@@ -262,12 +385,12 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
         kernel_config_bwd_dX: KernelConfigBackward_dX = None,
         dW_only: bool = False,
         dX_only: bool = False,
-        verbose=False,
+        verbose: bool = False,
     ):
         super().__init__(config, overlap_router_shared=overlap_router_shared)
-        assert not permute_x, (
-            "Llama4 triton grouped gemm does not support permute x due to pre-multiplication of router weights"
-        )
+        assert (
+            not permute_x
+        ), "Llama4 triton grouped gemm does not support permute x due to pre-multiplication of router weights"
         self.permute_x = permute_x
         self.permute_y = permute_y
         self.autotune = autotune
@@ -284,7 +407,17 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
         self.dX_only = dX_only
 
     @torch.no_grad
-    def copy_weights(self, other: Llama4TextMoe):
+    def copy_weights(self, other: Llama4TextMoe) -> Llama4TritonTextMoe:
+        """
+        Copies weights from another Llama4TextMoe model to this model.
+
+        Args:
+                other (`Llama4TextMoe`):
+                        The source model from which to copy weights.
+
+        Returns:
+                `Llama4TritonTextMoe`: The updated model with copied weights.
+        """
         for name, param_to_copy in other.named_parameters():
             if self.verbose:
                 print(f"Copying {name} with shape {param_to_copy.shape}")
@@ -293,14 +426,24 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
             if any(n in name for n in self.EXPERT_WEIGHT_NAMES):
                 param_to_copy = param_to_copy.permute(0, 2, 1)
 
-            assert param.shape == param_to_copy.shape, (
-                f"{param.shape} != {param_to_copy.shape}"
-            )
+            assert (
+                param.shape == param_to_copy.shape
+            ), f"{param.shape} != {param_to_copy.shape}"
             param.copy_(param_to_copy)
 
         return self
 
-    def check_weights(self, other: Llama4TextMoe):
+    def check_weights(self, other: Llama4TextMoe) -> None:
+        """
+        Checks if the weights of this model match those of another Llama4TextMoe model.
+
+        Args:
+                other (`Llama4TextMoe`):
+                        The model to compare weights with.
+
+        Raises:
+                AssertionError: If any weights do not match or are not contiguous.
+        """
         for name, other_param in other.named_parameters():
             if any(n in name for n in self.EXPERT_WEIGHT_NAMES):
                 other_param = other_param.permute(0, 2, 1)
@@ -309,12 +452,34 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
             assert param.is_contiguous(), f"{name} not contiguous!"
 
     def act_and_mul(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Applies activation function and element-wise multiplication to the input tensor.
+
+        Args:
+                x (`torch.Tensor`):
+                        Input tensor to process.
+
+        Returns:
+                `torch.Tensor`: The result after activation and multiplication.
+        """
         assert x.shape[-1] == 2 * self.experts.expert_dim
         gate_proj = x[..., : self.experts.expert_dim]
         up_proj = x[..., self.experts.expert_dim :]
         return self.experts.act_fn(gate_proj) * up_proj
 
     def run_router(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """
+        Runs the router to select experts for each token.
+
+        Args:
+                hidden_states (`torch.Tensor`):
+                        Input hidden states to process.
+
+        Returns:
+                `torch.Tensor`: Router logits.
+                `torch.Tensor`: Routing weights after applying sigmoid.
+                `torch.Tensor`: Indices of selected experts.
+        """
         # router_logits: (batch * sequence_length, n_experts)
         hidden_states = hidden_states.view(-1, self.hidden_dim)
         router_logits = self.router(hidden_states)
@@ -329,6 +494,17 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
     def get_token_counts_and_gather_indices(
         self, selected_experts: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes token counts per expert and gather indices for expert routing.
+
+        Args:
+                selected_experts (`torch.Tensor`):
+                        Indices of selected experts for each token.
+
+        Returns:
+                `torch.Tensor`: Token counts per expert.
+                `torch.Tensor`: Gather indices for expert routing.
+        """
         token_counts_by_expert, gather_indices = get_routing_indices(
             selected_experts, self.num_experts
         )
@@ -350,9 +526,10 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
         router_logits, routing_weights, selected_experts = self.run_router(
             hidden_states
         )
-        assert routing_weights.shape == (num_tokens, self.top_k), (
-            f"{routing_weights.shape} != {(num_tokens, self.top_k)}"
-        )
+        assert routing_weights.shape == (
+            num_tokens,
+            self.top_k,
+        ), f"{routing_weights.shape} != {(num_tokens, self.top_k)}"
 
         if self.overlap_router_shared:
             with torch.cuda.stream(self.shared_expert_stream):

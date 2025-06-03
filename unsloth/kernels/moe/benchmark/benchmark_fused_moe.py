@@ -1,3 +1,4 @@
+from typing import Optional
 import argparse
 import time
 from contextlib import nullcontext
@@ -48,7 +49,23 @@ def run_benchmark_forward(
     autotune: bool,
     kernel_config_fwd: KernelConfigForward = None,
     bs: int = 1,
-):
+) -> tuple[float, float]:
+    """
+    Runs a forward pass benchmark comparing a reference model and a Triton-optimized model.
+
+    Args:
+            ref_model (torch.nn.Module): The reference model to benchmark.
+            tt_model (torch.nn.Module): The Triton-optimized model to benchmark.
+            config (AutoConfig): The model configuration.
+            seqlen (int): The sequence length of the input.
+            dtype (torch.dtype): The data type of the input.
+            autotune (bool): Whether to use autotuning for the benchmark.
+            kernel_config_fwd (KernelConfigForward, optional): The kernel configuration for the forward pass. Defaults to None.
+            bs (int, optional): The batch size. Defaults to 1.
+
+    Returns:
+            tuple[float, float]: A tuple containing the reference forward time and the fused forward time.
+    """
     torch.manual_seed(
         SEED
     )  # Should not be needed when running using pytest -- autouse fixture in conftest.py
@@ -89,8 +106,22 @@ def run_benchmark_backward(
     config: AutoConfig,
     seqlen: int,
     dtype: torch.dtype,
-    bs=1,
-):
+    bs: int = 1,
+) -> tuple[float, float]:
+    """
+    Runs a backward pass benchmark comparing a reference model and a Triton-optimized model.
+
+    Args:
+            ref_model (torch.nn.Module): The reference model to benchmark.
+            tt_model (torch.nn.Module): The Triton-optimized model to benchmark.
+            config (AutoConfig): The model configuration.
+            seqlen (int): The sequence length of the input.
+            dtype (torch.dtype): The data type of the input.
+            bs (int, optional): The batch size. Defaults to 1.
+
+    Returns:
+            tuple[float, float]: A tuple containing the reference backward time and the fused backward time.
+    """
     torch.manual_seed(
         SEED
     )  # Should not be needed when running using pytest -- autouse fixture in conftest.py
@@ -114,8 +145,12 @@ def run_benchmark_backward(
 
     # Bench
     grad_output = torch.randn_like(output)
-    bench_backward_ref = lambda: output.backward(grad_output, retain_graph=True)  # noqa: E731
-    bench_backward_fused = lambda: test_output.backward(grad_output, retain_graph=True)  # noqa: E731
+    bench_backward_ref = lambda: output.backward(
+        grad_output, retain_graph=True
+    )  # noqa: E731
+    bench_backward_fused = lambda: test_output.backward(
+        grad_output, retain_graph=True
+    )  # noqa: E731
 
     ref_backward_time = do_bench(
         bench_backward_ref, grad_to_none=[X, *ref_model.parameters()]
@@ -131,18 +166,38 @@ def run_benchmark_backward(
 
 def setup_model(
     config: Qwen3MoeConfig | Llama4TextConfig,
-    dtype,
-    permute_x,
-    permute_y,
-    autotune,
-    kernel_config_fwd,
-    kernel_config_bwd_dW,
-    kernel_config_bwd_dX,
-    dX_only=False,
-    dW_only=False,
-    overlap_router_shared=False,
-    device="cuda",
-):
+    dtype: torch.dtype,
+    permute_x: bool,
+    permute_y: bool,
+    autotune: bool,
+    kernel_config_fwd: Optional[KernelConfigForward],
+    kernel_config_bwd_dW: Optional[KernelConfigBackward_dW],
+    kernel_config_bwd_dX: Optional[KernelConfigBackward_dX],
+    dX_only: bool = False,
+    dW_only: bool = False,
+    overlap_router_shared: bool = False,
+    device: str = "cuda",
+) -> tuple[torch.nn.Module, torch.nn.Module]:
+    """
+    Sets up the reference and Triton-optimized models based on the provided configuration.
+
+    Args:
+            config (Qwen3MoeConfig | Llama4TextConfig): The model configuration.
+            dtype (torch.dtype): The data type of the model.
+            permute_x (bool): Whether to permute the input tensor.
+            permute_y (bool): Whether to permute the output tensor.
+            autotune (bool): Whether to use autotuning for the model.
+            kernel_config_fwd (Optional[KernelConfigForward]): The kernel configuration for the forward pass.
+            kernel_config_bwd_dW (Optional[KernelConfigBackward_dW]): The kernel configuration for the backward pass with respect to weights.
+            kernel_config_bwd_dX (Optional[KernelConfigBackward_dX]): The kernel configuration for the backward pass with respect to inputs.
+            dX_only (bool, optional): Whether to run only the backward pass with respect to inputs. Defaults to False.
+            dW_only (bool, optional): Whether to run only the backward pass with respect to weights. Defaults to False.
+            overlap_router_shared (bool, optional): Whether to overlap the router and shared operations. Defaults to False.
+            device (str, optional): The device to use for the model. Defaults to 'cuda'.
+
+    Returns:
+            tuple[torch.nn.Module, torch.nn.Module]: A tuple containing the reference model and the Triton-optimized model.
+    """
     if isinstance(config, Qwen3MoeConfig):
         ref_model = Qwen3MoeSparseMoeBlock(config).to(device, dtype)
 
@@ -193,7 +248,27 @@ def run_benchmark(
     kernel_config_bwd_dX: KernelConfigBackward_dX = None,
     overlap_router_shared: bool = False,
     results_dir: str = None,
-):
+) -> tuple[float, float]:
+    """
+    Runs a benchmark for the specified mode (forward or backward) and model configuration.
+
+    Args:
+            mode (str): The mode of the benchmark ('forward', 'backward', 'dW', 'dX').
+            model_config (Qwen3MoeConfig | Llama4TextConfig): The model configuration.
+            seqlen (int): The sequence length of the input.
+            dtype (torch.dtype): The data type of the input.
+            permute_x (bool): Whether to permute the input tensor.
+            permute_y (bool): Whether to permute the output tensor.
+            autotune (bool): Whether to use autotuning for the benchmark.
+            kernel_config_fwd (KernelConfigForward, optional): The kernel configuration for the forward pass. Defaults to None.
+            kernel_config_bwd_dW (KernelConfigBackward_dW, optional): The kernel configuration for the backward pass with respect to weights. Defaults to None.
+            kernel_config_bwd_dX (KernelConfigBackward_dX, optional): The kernel configuration for the backward pass with respect to inputs. Defaults to None.
+            overlap_router_shared (bool, optional): Whether to overlap the router and shared operations. Defaults to False.
+            results_dir (str, optional): The directory to save the benchmark results. Defaults to None.
+
+    Returns:
+            tuple[float, float]: A tuple containing the reference time and the fused time for the specified benchmark mode.
+    """
     if autotune:
         autotuner = get_autotuner(mode)
     if mode == "dW":

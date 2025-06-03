@@ -5,7 +5,7 @@ Manual tuning utils
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, fields
 from itertools import product
-from typing import Optional
+from typing import Optional, T, OrderedDict
 
 import pandas as pd
 import torch
@@ -24,6 +24,20 @@ from grouped_gemm.kernels.autotuning import (
 
 @dataclass
 class DeviceProperties:
+    """
+    A dataclass that holds device-specific properties for GPU tuning.
+
+    Args:
+            NUM_SM (`int`):
+                    Number of streaming multiprocessors
+            NUM_REGS (`int`):
+                    Number of registers
+            SIZE_SMEM (`int`):
+                    Size of shared memory
+            WARP_SIZE (`int`):
+                    Size of a warp (number of threads per warp)
+    """
+
     NUM_SM: int
     NUM_REGS: int
     SIZE_SMEM: int
@@ -33,7 +47,13 @@ class DeviceProperties:
 _DEVICE_PROPERTIES: Optional[DeviceProperties] = None
 
 
-def get_device_properties():
+def get_device_properties() -> DeviceProperties:
+    """
+    Retrieves device properties for the current CUDA device.
+
+    Returns:
+            `DeviceProperties`: An object containing device-specific properties for GPU tuning.
+    """
     global _DEVICE_PROPERTIES
     if _DEVICE_PROPERTIES is None:
         properties = triton.runtime.driver.active.utils.get_device_properties(
@@ -49,6 +69,32 @@ def get_device_properties():
 
 @dataclass
 class KernelConfig:
+    """
+    Base class for kernel configuration parameters used in GPU kernel tuning.
+
+    Args:
+            BLOCK_SIZE_M (`int`):
+                    Block size in M dimension
+            BLOCK_SIZE_N (`int`):
+                    Block size in N dimension
+            BLOCK_SIZE_K (`int`):
+                    Block size in K dimension
+            num_warps (`int`):
+                    Number of warps to use
+            num_stages (`int`):
+                    Number of stages for pipelining
+            flatten (`bool`):
+                    Whether to flatten the output
+            permute_x (`bool`):
+                    Whether to permute input X
+            permute_y (`bool`):
+                    Whether to permute input Y
+            fuse_mul_post (`bool`):
+                    Whether to fuse post-multiplication
+            use_tma_store (`bool`):
+                    Whether to use TMA store operation
+    """
+
     BLOCK_SIZE_M: int = 32
     BLOCK_SIZE_N: int = 32
     BLOCK_SIZE_K: int = 32
@@ -60,7 +106,21 @@ class KernelConfig:
     fuse_mul_post: bool = False
     use_tma_store: bool = False
 
-    def to_string(self, include_tuning_params: bool = False, include_tma: bool = False):
+    def to_string(
+        self, include_tuning_params: bool = False, include_tma: bool = False
+    ) -> str:
+        """
+        Converts the kernel configuration to a string representation.
+
+        Args:
+                include_tuning_params (`bool`):
+                        Whether to include tuning parameters in the string
+                include_tma (`bool`):
+                        Whether to include TMA-related parameters
+
+        Returns:
+                `str`: String representation of the kernel configuration
+        """
         s = []
         if self.permute_x:
             s.append("permute_x")
@@ -80,30 +140,62 @@ class KernelConfig:
 
 @dataclass
 class KernelConfigForward(KernelConfig):
+    """
+    Kernel configuration specifically for forward operations.
+    """
+
     use_tma_load_w: bool = False
     use_tma_load_x: bool = False
 
 
 @dataclass
 class KernelConfigBackward_dW(KernelConfig):
+    """
+    Kernel configuration specifically for backward operations with respect to weight matrix.
+    """
+
     use_tma_load_dy: bool = False
     use_tma_load_x: bool = False
 
 
 @dataclass
 class KernelConfigBackward_dX(KernelConfig):
+    """
+    Kernel configuration specifically for backward operations with respect to input matrix.
+    """
+
     use_tma_load_dy: bool = False
     use_tma_load_w: bool = False
 
 
 @dataclass
 class KernelResult:
+    """
+    Stores results from kernel execution including timing and configuration.
+
+    Args:
+            torch_time (`float`):
+                    Execution time for PyTorch baseline
+            triton_time (`float`):
+                    Execution time for Triton implementation
+            speedup (`float`):
+                    Speedup ratio (PyTorch time / Triton time)
+            kernel_config (`KernelConfig`):
+                    Configuration used for the kernel
+    """
+
     torch_time: float
     triton_time: float
     speedup: float
     kernel_config: KernelConfig
 
-    def to_dict(self):
+    def to_dict(self) -> OrderedDict:
+        """
+        Converts the kernel result to an ordered dictionary.
+
+        Returns:
+                `OrderedDict`: Dictionary containing all result data
+        """
         return OrderedDict(
             **asdict(self.kernel_config),
             torch_time=self.torch_time,
@@ -114,7 +206,21 @@ class KernelResult:
     @staticmethod
     def to_dataframe(
         results: list["KernelResult"], sort_by: str = "speedup", ascending: bool = False
-    ):
+    ) -> pd.DataFrame:
+        """
+        Converts a list of kernel results to a pandas DataFrame.
+
+        Args:
+                results (`list[KernelResult]`):
+                        List of kernel results to convert
+                sort_by (`str`):
+                        Column name to sort by
+                ascending (`bool`):
+                        Whether to sort in ascending order
+
+        Returns:
+                `pd.DataFrame`: DataFrame containing the results
+        """
         df = pd.DataFrame([result.to_dict() for result in results])
         df = df.sort_values(by=sort_by, ascending=ascending)
         return df
@@ -125,7 +231,20 @@ class KernelResult:
         sort_by: str = "speedup",
         ascending: bool = False,
         filename: str = "results.csv",
-    ):
+    ) -> None:
+        """
+        Saves a list of kernel results to a CSV file.
+
+        Args:
+                results (`list[KernelResult]`):
+                        List of kernel results to save
+                sort_by (`str`):
+                        Column name to sort by
+                ascending (`bool`):
+                        Whether to sort in ascending order
+                filename (`str`):
+                        Name of the output CSV file
+        """
         df = KernelResult.to_dataframe(results, sort_by, ascending)
         df.to_csv(filename, index=False)
 
@@ -135,20 +254,59 @@ class KernelResult:
         sort_by: str = "speedup",
         ascending: bool = False,
         num_results: int = 10,
-    ):
+    ) -> None:
+        """
+        Prints a formatted table of the top kernel results.
+
+        Args:
+                results (`list[KernelResult]`):
+                        List of kernel results to display
+                sort_by (`str`):
+                        Column name to sort by
+                ascending (`bool`):
+                        Whether to sort in ascending order
+                num_results (`int`):
+                        Number of top results to display
+        """
         df = KernelResult.to_dataframe(results, sort_by, ascending)
         print(df.head(num_results).to_string(index=False))
 
 
 def get_kernel_configs(
-    BLOCK_M=DEFAULT_M_BLOCK_SIZES,
-    BLOCK_N=DEFAULT_N_BLOCK_SIZES,
-    BLOCK_K=DEFAULT_K_BLOCK_SIZES,
-    num_warps=DEFAULT_NUM_WARPS,
-    num_stages=DEFAULT_NUM_STAGES,
-    use_tma_loads=BOOLS,
-    fuse_permute=BOOLS,
-):
+    BLOCK_M: list[int] = DEFAULT_M_BLOCK_SIZES,
+    BLOCK_N: list[int] = DEFAULT_N_BLOCK_SIZES,
+    BLOCK_K: list[int] = DEFAULT_K_BLOCK_SIZES,
+    num_warps: list[int] = DEFAULT_NUM_WARPS,
+    num_stages: list[int] = DEFAULT_NUM_STAGES,
+    use_tma_loads: list[bool] = BOOLS,
+    fuse_permute: list[bool] = BOOLS,
+) -> tuple[
+    list[KernelConfigForward],
+    list[KernelConfigBackward_dW],
+    list[KernelConfigBackward_dX],
+]:
+    """
+    Generates all possible kernel configurations based on provided parameter ranges.
+
+    Args:
+            BLOCK_M (`list[int]`):
+                    List of block sizes for M dimension
+            BLOCK_N (`list[int]`):
+                    List of block sizes for N dimension
+            BLOCK_K (`list[int]`):
+                    List of block sizes for K dimension
+            num_warps (`list[int]`):
+                    List of warp counts
+            num_stages (`list[int]`):
+                    List of pipeline stages
+            use_tma_loads (`list[bool]`):
+                    List of TMA load options
+            fuse_permute (`list[bool]`):
+                    List of permutation options
+
+    Returns:
+            `tuple`: Three lists containing forward, backward_dW, and backward_dX kernel configurations
+    """
     kernel_configs_fwd = []
     kernel_configs_backward_dW = []
     kernel_configs_backward_dX = []
@@ -208,7 +366,19 @@ def get_kernel_configs(
     return kernel_configs_fwd, kernel_configs_backward_dW, kernel_configs_backward_dX
 
 
-def prune_kernel_configs_fwd(configs: list[KernelConfigForward]):
+def prune_kernel_configs_fwd(
+    configs: list[KernelConfigForward],
+) -> list[KernelConfigForward]:
+    """
+    Removes invalid kernel configurations for forward operations.
+
+    Args:
+            configs (`list[KernelConfigForward]`):
+                    List of forward kernel configurations
+
+    Returns:
+            `list[KernelConfigForward]`: Pruned list of valid configurations
+    """
     pruned_configs = []
     for config in configs:
         if config.use_tma_load_x and config.permute_x:
@@ -221,7 +391,19 @@ def prune_kernel_configs_fwd(configs: list[KernelConfigForward]):
     return pruned_configs
 
 
-def prune_kernel_configs_backward_dX(configs: list[KernelConfigBackward_dX]):
+def prune_kernel_configs_backward_dX(
+    configs: list[KernelConfigBackward_dX],
+) -> list[KernelConfigBackward_dX]:
+    """
+    Removes invalid kernel configurations for backward_dX operations.
+
+    Args:
+            configs (`list[KernelConfigBackward_dX]`):
+                    List of backward_dX kernel configurations
+
+    Returns:
+            `list[KernelConfigBackward_dX]`: Pruned list of valid configurations
+    """
     pruned_configs = []
     for config in configs:
         if config.use_tma_load_dy and config.permute_y:
@@ -234,7 +416,19 @@ def prune_kernel_configs_backward_dX(configs: list[KernelConfigBackward_dX]):
     return pruned_configs
 
 
-def prune_kernel_configs_backward_dW(configs: list[KernelConfigBackward_dW]):
+def prune_kernel_configs_backward_dW(
+    configs: list[KernelConfigBackward_dW],
+) -> list[KernelConfigBackward_dW]:
+    """
+    Removes invalid kernel configurations for backward_dW operations.
+
+    Args:
+            configs (`list[KernelConfigBackward_dW]`):
+                    List of backward_dW kernel configurations
+
+    Returns:
+            `list[KernelConfigBackward_dW]`: Pruned list of valid configurations
+    """
     pruned_configs = []
     for config in configs:
         if config.use_tma_load_dy and config.permute_y:
@@ -248,15 +442,50 @@ def prune_kernel_configs_backward_dW(configs: list[KernelConfigBackward_dW]):
 
 
 class TritonTuningContext:
+    """
+    Context manager for handling Triton kernel tuning operations.
+
+    Args:
+            kernel_config (`KernelConfig`):
+                    Configuration for the kernel being tuned
+            success (`bool`):
+                    Indicates whether the kernel execution was successful
+    """
+
     def __init__(self, kernel_config: KernelConfig):
         self.kernel_config = kernel_config
         self.success = True
 
-    def __enter__(self):
+    def __enter__(self) -> TritonTuningContext:
+        """
+        Enters the Triton tuning context.
+
+        Returns:
+                `TritonTuningContext`: The context object
+        """
         # Setup code can be added here if needed
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> bool:
+        """
+        Handles cleanup and error reporting when exiting the Triton tuning context.
+
+        Args:
+                exc_type (`type[BaseException]`, optional):
+                        Type of exception if one occurred
+                exc_value (`BaseException`, optional):
+                        Exception instance if one occurred
+                traceback (`TracebackType`, optional):
+                        Traceback information if an exception occurred
+
+        Returns:
+                `bool`: True to suppress exceptions, False to propagate them
+        """
         if exc_type is OutOfResources:
             name = exc_value.name
             required = exc_value.required

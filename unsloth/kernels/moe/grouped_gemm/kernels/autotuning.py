@@ -4,7 +4,7 @@ Autotuning utils
 
 import logging
 from itertools import product
-from typing import List
+from typing import List, Optional, Any
 
 import torch
 import triton
@@ -20,7 +20,16 @@ DEFAULT_NUM_STAGES = [3, 4, 5]
 BOOLS = [True, False]
 
 
-def val_to_list(val):
+def val_to_list(val: Optional[Any]) -> Optional[List[Any]]:
+    """
+    Converts a value to a list if it is not already a list.
+
+    Args:
+            val (`Optional[Any]`): The value to convert.
+
+    Returns:
+            `Optional[List[Any]]`: A list containing the value, or the original list if val is already a list. Returns None if val is None.
+    """
     if val is None:
         return None
     elif isinstance(val, list):
@@ -29,21 +38,47 @@ def val_to_list(val):
         return [val]
 
 
-def convert_args_to_list(args):
+def convert_args_to_list(args: List[Any]) -> List[List[Any]]:
+    """
+    Converts a list of values to lists using `val_to_list`.
+
+    Args:
+            args (`List[Any]`): List of values to convert.
+
+    Returns:
+            `List[List[Any]]`: List of lists where each value has been converted using `val_to_list`.
+    """
     return [val_to_list(arg) for arg in args]
 
 
 def get_forward_configs(
-    BLOCK_M=DEFAULT_M_BLOCK_SIZES,
-    BLOCK_N=DEFAULT_N_BLOCK_SIZES,
-    BLOCK_K=DEFAULT_K_BLOCK_SIZES,
-    TMA_LOAD_X=True,
-    TMA_LOAD_W=True,
-    TMA_STORE=False,  # NOTE: TMA_STORE is disabled for now
-    num_warps=DEFAULT_NUM_WARPS,
-    num_stages=DEFAULT_NUM_STAGES,
-    num_ctas=DEFAULT_NUM_CTAS,
-):
+    BLOCK_M: List[int] = DEFAULT_M_BLOCK_SIZES,
+    BLOCK_N: List[int] = DEFAULT_N_BLOCK_SIZES,
+    BLOCK_K: List[int] = DEFAULT_K_BLOCK_SIZES,
+    TMA_LOAD_X: List[bool] = True,
+    TMA_LOAD_W: List[bool] = True,
+    TMA_STORE: List[bool] = False,  # NOTE: TMA_STORE is disabled for now
+    num_warps: List[int] = DEFAULT_NUM_WARPS,
+    num_stages: List[int] = DEFAULT_NUM_STAGES,
+    num_ctas: List[int] = DEFAULT_NUM_CTAS,
+) -> List[triton.Config]:
+    """
+    Generates triton kernel configurations for forward pass.
+
+    Args:
+            BLOCK_M (`List[int]`): List of block sizes for M dimension.
+            BLOCK_N (`List[int]`): List of block sizes for N dimension.
+            BLOCK_K (`List[int]`): List of block sizes for K dimension.
+            TMA_LOAD_X (`List[bool]`): List of boolean flags for TMA load X.
+            TMA_LOAD_W (`List[bool]`): List of boolean flags for TMA load W.
+            TMA_STORE (`List[bool]`): List of boolean flags for TMA store.
+            num_warps (`List[int]`): List of warp counts.
+            num_stages (`List[int]`): List of pipeline stage counts.
+            num_ctas (`List[int]`): List of CTA counts.
+
+    Returns:
+            `List[triton.Config]`: List of generated triton configurations.
+    """
     (
         BLOCK_M,
         BLOCK_N,
@@ -109,16 +144,33 @@ def get_forward_configs(
 
 
 def get_dX_kernel_configs(
-    BLOCK_M=DEFAULT_M_BLOCK_SIZES,
-    BLOCK_N=DEFAULT_N_BLOCK_SIZES,
-    BLOCK_K=DEFAULT_K_BLOCK_SIZES,
-    TMA_LOAD_dY=True,
-    TMA_LOAD_W=True,
-    TMA_STORE=False,  # NOTE: TMA_STORE is disabled for now
-    num_warps=DEFAULT_NUM_WARPS,
-    num_stages=DEFAULT_NUM_STAGES,
-    num_ctas=DEFAULT_NUM_CTAS,
-):
+    BLOCK_M: List[int] = DEFAULT_M_BLOCK_SIZES,
+    BLOCK_N: List[int] = DEFAULT_N_BLOCK_SIZES,
+    BLOCK_K: List[int] = DEFAULT_K_BLOCK_SIZES,
+    TMA_LOAD_dY: List[bool] = True,
+    TMA_LOAD_W: List[bool] = True,
+    TMA_STORE: List[bool] = False,  # NOTE: TMA_STORE is disabled for now
+    num_warps: List[int] = DEFAULT_NUM_WARPS,
+    num_stages: List[int] = DEFAULT_NUM_STAGES,
+    num_ctas: List[int] = DEFAULT_NUM_CTAS,
+) -> List[triton.Config]:
+    """
+    Generates triton kernel configurations for dX backward pass.
+
+    Args:
+            BLOCK_M (`List[int]`): List of block sizes for M dimension.
+            BLOCK_N (`List[int]`): List of block sizes for N dimension.
+            BLOCK_K (`List[int]`): List of block sizes for K dimension.
+            TMA_LOAD_dY (`List[bool]`): List of boolean flags for TMA load dY.
+            TMA_LOAD_W (`List[bool]`): List of boolean flags for TMA load W.
+            TMA_STORE (`List[bool]`): List of boolean flags for TMA store.
+            num_warps (`List[int]`): List of warp counts.
+            num_stages (`List[int]`): List of pipeline stage counts.
+            num_ctas (`List[int]`): List of CTA counts.
+
+    Returns:
+            `List[triton.Config]`: List of generated triton configurations.
+    """
     (
         BLOCK_M,
         BLOCK_N,
@@ -184,16 +236,33 @@ def get_dX_kernel_configs(
 
 
 def get_dW_kernel_configs(
-    BLOCK_M=DEFAULT_M_BLOCK_SIZES,
-    BLOCK_N=DEFAULT_N_BLOCK_SIZES,
-    BLOCK_K=DEFAULT_K_BLOCK_SIZES,
-    num_warps=DEFAULT_NUM_WARPS,
-    num_stages=DEFAULT_NUM_STAGES,
-    num_ctas=DEFAULT_NUM_CTAS,
-    TMA_LOAD_dY=True,
-    TMA_LOAD_X=True,
-    TMA_STORE=False,
-):
+    BLOCK_M: List[int] = DEFAULT_M_BLOCK_SIZES,
+    BLOCK_N: List[int] = DEFAULT_N_BLOCK_SIZES,
+    BLOCK_K: List[int] = DEFAULT_K_BLOCK_SIZES,
+    num_warps: List[int] = DEFAULT_NUM_WARPS,
+    num_stages: List[int] = DEFAULT_NUM_STAGES,
+    num_ctas: List[int] = DEFAULT_NUM_CTAS,
+    TMA_LOAD_dY: List[bool] = True,
+    TMA_LOAD_X: List[bool] = True,
+    TMA_STORE: List[bool] = False,
+) -> List[triton.Config]:
+    """
+    Generates triton kernel configurations for dW backward pass.
+
+    Args:
+            BLOCK_M (`List[int]`): List of block sizes for M dimension.
+            BLOCK_N (`List[int]`): List of block sizes for N dimension.
+            BLOCK_K (`List[int]`): List of block sizes for K dimension.
+            num_warps (`List[int]`): List of warp counts.
+            num_stages (`List[int]`): List of pipeline stage counts.
+            num_ctas (`List[int]`): List of CTA counts.
+            TMA_LOAD_dY (`List[bool]`): List of boolean flags for TMA load dY.
+            TMA_LOAD_X (`List[bool]`): List of boolean flags for TMA load X.
+            TMA_STORE (`List[bool]`): List of boolean flags for TMA store.
+
+    Returns:
+            `List[triton.Config]`: List of generated triton configurations.
+    """
     (
         BLOCK_M,
         BLOCK_N,
@@ -264,7 +333,20 @@ def estimate_smem_reqs(
     BLOCK_SIZE_N: int,
     BLOCK_SIZE_K: int,
     dtype: torch.dtype,
-):
+) -> int:
+    """
+    Estimates shared memory requirements for a kernel configuration.
+
+    Args:
+            num_stages (`int`): Number of pipeline stages.
+            BLOCK_SIZE_M (`int`): Block size for M dimension.
+            BLOCK_SIZE_N (`int`): Block size for N dimension.
+            BLOCK_SIZE_K (`int`): Block size for K dimension.
+            dtype (`torch.dtype`): Data type of the tensors.
+
+    Returns:
+            `int`: Estimated shared memory requirements in bytes.
+    """
     num_bytes = dtype.itemsize
     return (
         num_stages * BLOCK_SIZE_K * (BLOCK_SIZE_M + BLOCK_SIZE_N)
@@ -280,14 +362,42 @@ def exceeds_smem_capacity(
     dtype: torch.dtype,
     smem_size: int,
     slack: float = 50000,
-):
+) -> bool:
+    """
+    Checks if a kernel configuration exceeds shared memory capacity.
+
+    Args:
+            num_stages (`int`): Number of pipeline stages.
+            BLOCK_SIZE_M (`int`): Block size for M dimension.
+            BLOCK_SIZE_N (`int`): Block size for N dimension.
+            BLOCK_SIZE_K (`int`): Block size for K dimension.
+            dtype (`torch.dtype`): Data type of the tensors.
+            smem_size (`int`): Available shared memory size.
+            slack (`float`): Slack space to account for other memory requirements.
+
+    Returns:
+            `bool`: True if configuration exceeds shared memory capacity, False otherwise.
+    """
     smem_reqs = estimate_smem_reqs(
         num_stages, BLOCK_SIZE_M, BLOCK_SIZE_N, BLOCK_SIZE_K, dtype
     )
     return smem_reqs > smem_size + slack
 
 
-def common_prune_criteria(config: triton.Config, kwargs: dict, dtype):
+def common_prune_criteria(
+    config: triton.Config, kwargs: dict, dtype: torch.dtype
+) -> bool:
+    """
+    Common criteria for pruning kernel configurations.
+
+    Args:
+            config (`triton.Config`): Kernel configuration to evaluate.
+            kwargs (`dict`): Additional parameters for evaluation.
+            dtype (`torch.dtype`): Data type of the tensors.
+
+    Returns:
+            `bool`: True if configuration should be pruned, False otherwise.
+    """
     from grouped_gemm.interface import supports_tma
     from grouped_gemm.kernels.tuning import get_device_properties
 
@@ -315,11 +425,20 @@ def common_prune_criteria(config: triton.Config, kwargs: dict, dtype):
     if permute_x and permute_y:
         return True
     # if not supports_tma() and any(use_tma):
-    #     return True
+    # 	 return True
     return False
 
 
-def maybe_disable_tma(config: triton.Config):
+def maybe_disable_tma(config: triton.Config) -> None:
+    """
+    Disables TMA in configuration if not supported by hardware.
+
+    Args:
+            config (`triton.Config`): Kernel configuration to modify.
+
+    Returns:
+            None: Modifies the configuration in place.
+    """
     from grouped_gemm.interface import supports_tma
 
     tma_keys = [k for k in config.kwargs.keys() if k.startswith("USE_TMA_")]
@@ -329,7 +448,20 @@ def maybe_disable_tma(config: triton.Config):
             config.kwargs[k] = False
 
 
-def prune_kernel_configs_fwd(configs: list[triton.Config], args, **kwargs):
+def prune_kernel_configs_fwd(
+    configs: list[triton.Config], args: List[Any], **kwargs
+) -> List[triton.Config]:
+    """
+    Prunes forward kernel configurations based on criteria.
+
+    Args:
+            configs (`list[triton.Config]`): List of kernel configurations to prune.
+            args (`List[Any]`): Additional arguments.
+            kwargs (`dict`): Additional parameters for pruning criteria.
+
+    Returns:
+            `List[triton.Config]`: Pruned list of kernel configurations.
+    """
     x = kwargs["x_ptr"]
     dtype = x.dtype
 
@@ -354,7 +486,20 @@ def prune_kernel_configs_fwd(configs: list[triton.Config], args, **kwargs):
     return pruned_configs
 
 
-def prune_dX_configs(configs: List[triton.Config], args, **kwargs):
+def prune_dX_configs(
+    configs: List[triton.Config], args: List[Any], **kwargs
+) -> List[triton.Config]:
+    """
+    Prunes dX backward kernel configurations based on criteria.
+
+    Args:
+            configs (`List[triton.Config]`): List of kernel configurations to prune.
+            args (`List[Any]`): Additional arguments.
+            kwargs (`dict`): Additional parameters for pruning criteria.
+
+    Returns:
+            `List[triton.Config]`: Pruned list of kernel configurations.
+    """
     dtype = kwargs["w_ptr"].dtype
 
     logger.debug(f"Pruning configs: {len(configs)}")
@@ -374,7 +519,20 @@ def prune_dX_configs(configs: List[triton.Config], args, **kwargs):
     return pruned_configs
 
 
-def prune_kernel_configs_backward_dW(configs: list[triton.Config], args, **kwargs):
+def prune_kernel_configs_backward_dW(
+    configs: list[triton.Config], args: List[Any], **kwargs
+) -> List[triton.Config]:
+    """
+    Prunes dW backward kernel configurations based on criteria.
+
+    Args:
+            configs (`list[triton.Config]`): List of kernel configurations to prune.
+            args (`List[Any]`): Additional arguments.
+            kwargs (`dict`): Additional parameters for pruning criteria.
+
+    Returns:
+            `List[triton.Config]`: Pruned list of kernel configurations.
+    """
     dtype = kwargs["x_ptr"].dtype
 
     pruned_configs = []

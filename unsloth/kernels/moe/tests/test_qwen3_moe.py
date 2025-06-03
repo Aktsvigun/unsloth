@@ -44,11 +44,11 @@ The tests check the following:
 Both forward and backward passes are tests:
 - forward: output of the moe block
 - backwards:
-    - X: gradient of the input to the moe block
-    - gate.weight: gradient of the gate weights (router weights)
-    - gate_proj: gradient of concatenated gate projections
-    - up_proj: gradient of the concatenated up projections
-    - down_proj: gradient of the concatenated down projections
+	- X: gradient of the input to the moe block
+	- gate.weight: gradient of the gate weights (router weights)
+	- gate_proj: gradient of concatenated gate projections
+	- up_proj: gradient of the concatenated up projections
+	- down_proj: gradient of the concatenated down projections
 
 Additionally, for the torch grouped gemm and triton grouped gemm versions, the intermediate outputs of the forward pass are checked:
 - first_gemm: output of the first grouped gemm (X @ fused_gate_proj)
@@ -66,17 +66,19 @@ TOLERANCES = {
 
 
 @pytest.fixture(scope="module")
-def model_id():
+def model_id() -> str:
     return "Qwen/Qwen3-30B-A3B"
 
 
 @pytest.fixture(scope="module")
-def config(model_id: str):
+def config(model_id: str) -> Qwen3MoeConfig:
     return AutoConfig.from_pretrained(model_id)
 
 
 @contextmanager
-def annotated_context(prelude, epilogue="Passed!", char="-", num_chars=80):
+def annotated_context(
+    prelude: str, epilogue: str = "Passed!", char: str = "-", num_chars: int = 80
+) -> None:
     print(char * num_chars)
     print(prelude)
     yield
@@ -110,7 +112,7 @@ def test_qwen3_moe(
     permute_x: bool,
     permute_y: bool,
     autotune: bool,
-):
+) -> None:
     torch.manual_seed(
         SEED
     )  # Should not be needed when running using pytest -- autouse fixture in conftest.py

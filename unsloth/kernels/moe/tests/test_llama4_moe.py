@@ -1,3 +1,4 @@
+from typing import Optional
 import argparse
 import sys
 from contextlib import contextmanager
@@ -34,7 +35,22 @@ NUM_AUTOTUNE_CONFIGS = 50
 
 
 @contextmanager
-def annotated_context(prelude, epilogue="Passed!", char="-", num_chars=80):
+def annotated_context(
+    prelude: str, epilogue: str = "Passed!", char: str = "-", num_chars: int = 80
+) -> None:
+    """
+    Context manager that prints a prelude and epilogue around a code block.
+
+    Args:
+            prelude (`str`):
+                    Text to print before entering the context.
+            epilogue (`str`, optional):
+                    Text to print after exiting the context. Defaults to 'Passed!'.
+            char (`str`, optional):
+                    Character to use for the border. Defaults to '-'.
+            num_chars (`int`, optional):
+                    Number of characters to print for the border. Defaults to 80.
+    """
     print(char * num_chars)
     print(prelude)
     yield
@@ -42,12 +58,38 @@ def annotated_context(prelude, epilogue="Passed!", char="-", num_chars=80):
     print(char * num_chars)
 
 
-def get_text_config(model_id):
+def get_text_config(model_id: str) -> Llama4TextConfig:
+    """
+    Get the text configuration from a Llama4 model.
+
+    Args:
+            model_id (`str`):
+                    The model identifier.
+
+    Returns:
+            `Llama4TextConfig`: The text configuration of the model.
+    """
     config: Llama4Config = AutoConfig.from_pretrained(model_id)
     return config.text_config
 
 
-def prep_triton_kernel_traits(autotune):
+def prep_triton_kernel_traits(
+    autotune: bool,
+) -> tuple[
+    Optional[KernelConfigForward],
+    Optional[KernelConfigBackward_dW],
+    Optional[KernelConfigBackward_dX],
+]:
+    """
+    Prepare the kernel configurations for the Triton implementation.
+
+    Args:
+            autotune (`bool`):
+                    Whether to use autotuning for the kernels.
+
+    Returns:
+            tuple[Optional[KernelConfigForward], Optional[KernelConfigBackward_dW], Optional[KernelConfigBackward_dX]]: The kernel configurations for forward, backward dW, and backward dX.
+    """
     if not autotune:
         kernel_config_fwd = KernelConfigForward()
         kernel_config_bwd_dW = KernelConfigBackward_dW()
@@ -77,7 +119,17 @@ def prep_triton_kernel_traits(autotune):
     return kernel_config_fwd, kernel_config_bwd_dW, kernel_config_bwd_dX
 
 
-def sparse_to_dense(t: torch.Tensor):
+def sparse_to_dense(t: torch.Tensor) -> None:
+    """
+    Convert a sparse tensor to a dense tensor.
+
+    Args:
+            t (`torch.Tensor`):
+                    The sparse tensor to convert.
+
+    Returns:
+            `torch.Tensor`: The dense tensor.
+    """
     t = t.sum(dim=0).view(-1)
     return t
 
@@ -86,12 +138,31 @@ def sparse_to_dense(t: torch.Tensor):
 def _check_diff(
     t1: torch.Tensor,
     t2: torch.Tensor,
-    atol,
-    rtol,
-    precision=".6f",
-    verbose=False,
-    msg="",
-):
+    atol: float,
+    rtol: float,
+    precision: str = ".6f",
+    verbose: bool = False,
+    msg: str = "",
+) -> None:
+    """
+    Check the difference between two tensors.
+
+    Args:
+            t1 (`torch.Tensor`):
+                    First tensor.
+            t2 (`torch.Tensor`):
+                    Second tensor.
+            atol (`float`):
+                    Absolute tolerance.
+            rtol (`float`):
+                    Relative tolerance.
+            precision (`str`, optional):
+                    Format string for precision. Defaults to '.6f'.
+            verbose (`bool`, optional):
+                    Whether to print the difference. Defaults to False.
+            msg (`str`, optional):
+                    Message to print with the difference. Defaults to empty string.
+    """
     t2 = t2.view_as(t1)
     diff = t1.sub(t2).abs().max().item()
     if verbose:
@@ -101,7 +172,20 @@ def _check_diff(
     assert torch.allclose(t1, t2, atol=atol, rtol=rtol)
 
 
-def run_backwards(y: torch.Tensor, grad_output: torch.Tensor, module: torch.nn.Module):
+def run_backwards(
+    y: torch.Tensor, grad_output: torch.Tensor, module: torch.nn.Module
+) -> None:
+    """
+    Run the backward pass for a module.
+
+    Args:
+            y (`torch.Tensor`):
+                    Output tensor.
+            grad_output (`torch.Tensor`):
+                    Gradient of the output.
+            module (`torch.nn.Module`):
+                    Module to run the backward pass on.
+    """
     y.backward(grad_output)
     for name, param in module.named_parameters():
         assert param.grad is not None, f"{name} missing grad!"
@@ -110,12 +194,31 @@ def run_backwards(y: torch.Tensor, grad_output: torch.Tensor, module: torch.nn.M
 def _check_grads(
     m1: torch.nn.Module,
     m2: torch.nn.Module,
-    atol,
-    rtol,
-    precision=".6f",
-    verbose=False,
-    msg="",
-):
+    atol: float,
+    rtol: float,
+    precision: str = ".6f",
+    verbose: bool = False,
+    msg: str = "",
+) -> None:
+    """
+    Check the gradients of two modules.
+
+    Args:
+            m1 (`torch.nn.Module`):
+                    First module.
+            m2 (`torch.nn.Module`):
+                    Second module.
+            atol (`float`):
+                    Absolute tolerance.
+            rtol (`float`):
+                    Relative tolerance.
+            precision (`str`, optional):
+                    Format string for precision. Defaults to '.6f'.
+            verbose (`bool`, optional):
+                    Whether to print the difference. Defaults to False.
+            msg (`str`, optional):
+                    Message to print with the difference. Defaults to empty string.
+    """
     for name, param in m1.named_parameters():
         _check_diff(
             param.grad,
@@ -129,7 +232,13 @@ def _check_grads(
 
 
 @pytest.fixture
-def model_config():
+def model_config() -> None:
+    """
+    Fixture to get the model configuration.
+
+    Returns:
+            `Llama4TextConfig`: The text configuration of the model.
+    """
     return AutoConfig.from_pretrained(LLAMA4_SCOUT_ID).text_config
 
 
@@ -151,17 +260,44 @@ def model_config():
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
 def test_llama4_ref(
     dtype: torch.dtype,
-    seqlen,
+    seqlen: int,
     autotune: bool,
     permute_x: bool,
     permute_y: bool,
     overlap_router_shared: bool,
     model_config: Llama4TextConfig,  # test fixture
     bs: int = 1,
-    device="cuda",
-    precision=".6f",
-    verbose=False,
-):
+    device: str = "cuda",
+    precision: str = ".6f",
+    verbose: bool = False,
+) -> None:
+    """
+    Test the Llama4 reference implementation against the grouped GEMM and Triton implementations.
+
+    Args:
+            dtype (`torch.dtype`):
+                    Data type to use for the test.
+            seqlen (`int`):
+                    Sequence length.
+            autotune (`bool`):
+                    Whether to use autotuning for the kernels.
+            permute_x (`bool`):
+                    Whether to permute the input x.
+            permute_y (`bool`):
+                    Whether to permute the output y.
+            overlap_router_shared (`bool`):
+                    Whether to overlap the router and shared weights.
+            model_config (`Llama4TextConfig`):
+                    Model configuration.
+            bs (`int`, optional):
+                    Batch size. Defaults to 1.
+            device (`str`, optional):
+                    Device to use. Defaults to 'cuda'.
+            precision (`str`, optional):
+                    Format string for precision. Defaults to '.6f'.
+            verbose (`bool`, optional):
+                    Whether to print detailed information. Defaults to False.
+    """
     torch.manual_seed(
         SEED
     )  # Should not be needed when running using pytest -- autouse fixture in conftest.py

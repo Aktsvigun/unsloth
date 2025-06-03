@@ -1,9 +1,8 @@
-
 import torch
 import torch.nn.functional as F
 
 
-def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int):
+def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int) -> torch.Tensor:
     """
     Scatters X to a new tensor with shape [total_tokens, hidden_dim] where total_tokens is num_tokens * topk,
     permuting the tokens according to sorted_token_idx.
@@ -14,7 +13,7 @@ def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int):
     topk: int
 
     Returns:
-        [total_tokens, hidden_dim]
+            [total_tokens, hidden_dim]
     """
     assert gather_indices.ndim == 1
     X = X.view(-1, X.shape[-1])
@@ -25,7 +24,19 @@ def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int):
     return X[gather_indices // topk]
 
 
-def unpermute(X: torch.Tensor, gather_indices: torch.Tensor):
+def unpermute(X: torch.Tensor, gather_indices: torch.Tensor) -> torch.Tensor:
+    """
+    Reorders the input tensor `X` according to the indices in `gather_indices`.
+
+    Args:
+            X (`torch.Tensor`):
+                    The tensor to be unpermuted.
+            gather_indices (`torch.Tensor`):
+                    The indices to use for unpermuting the tensor.
+
+    Returns:
+            `torch.Tensor`: The unpermuted tensor.
+    """
     X = X.view(-1, X.shape[-1]) if X.ndim > 2 else X
     unpermuted = torch.empty_like(X)
     unpermuted.index_copy_(0, gather_indices, X)
@@ -39,7 +50,7 @@ def calculate_topk(
     renormalize: bool,
     pre_act: bool = True,
     post_act: bool = False,
-):
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     If post_act is True, then activation function is run AFTER topk
     If post_act is False, then activation function is run BEFORE topk
@@ -50,9 +61,13 @@ def calculate_topk(
 
     def _activation(gating_output: torch.Tensor):
         if use_sigmoid:
-            scores = torch.sigmoid(gating_output.to(torch.float32)).to(gating_output.dtype)
+            scores = torch.sigmoid(gating_output.to(torch.float32)).to(
+                gating_output.dtype
+            )
         else:
-            scores = F.softmax(gating_output.to(torch.float32), dim=1).to(gating_output.dtype)
+            scores = F.softmax(gating_output.to(torch.float32), dim=1).to(
+                gating_output.dtype
+            )
 
         return scores
 
@@ -67,19 +82,27 @@ def calculate_topk(
         topk_weights = _activation(topk_weights)
 
     if renormalize:
-        topk_weights /= torch.sum(topk_weights, dim=-1, keepdim=True).to(gating_output.dtype)
+        topk_weights /= torch.sum(topk_weights, dim=-1, keepdim=True).to(
+            gating_output.dtype
+        )
 
     return topk_weights, topk_ids
 
 
 @torch.no_grad()
-def get_routing_indices(selected_experts, num_experts, return_scatter_indices: bool = False):
+def get_routing_indices(
+    selected_experts: torch.Tensor,
+    num_experts: int,
+    return_scatter_indices: bool = False,
+) -> (
+    tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+):
     """
     Returns:
-        token_counts_by_expert: [num_experts]
-        gather_indices: [num_tokens]
-        scatter_indices [Optional] (torch.Tensor):
-            Indices for unpermuting gathered inputs back to token order, shape ``(bs * seqlen * top_k,)``.
+            token_counts_by_expert: [num_experts]
+            gather_indices: [num_tokens]
+            scatter_indices [Optional] (torch.Tensor):
+                    Indices for unpermuting gathered inputs back to token order, shape ``(bs * seqlen * top_k,)``.
     """
     # group tokens together by expert indices from 0 to num_experts and pass that to experts forward
     token_counts_by_expert = torch.histc(
@@ -97,14 +120,16 @@ def get_routing_indices(selected_experts, num_experts, return_scatter_indices: b
         return token_counts_by_expert, gather_indices
 
 
-def torch_grouped_gemm(X, W, m_sizes, transpose=True):
+def torch_grouped_gemm(
+    X: torch.Tensor, W: torch.Tensor, m_sizes: torch.Tensor, transpose: bool = True
+) -> torch.Tensor:
     """
     X: [M, K] if forward, else [M, N]
     W: [E, N, K]
     m_sizes: [E]
 
     Returns:
-        Y: [M, N] if forward, else [M, K]
+            Y: [M, N] if forward, else [M, K]
     """
     X = X.view(-1, X.shape[-1])
     M, K = X.shape
