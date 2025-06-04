@@ -1,3 +1,4 @@
+from typing import Optional, Callable
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -200,10 +201,10 @@ def Qwen3Attention_fast_forward_inference(
     self,
     hidden_states:  torch.Tensor,
     past_key_value: Optional[Tuple[torch.Tensor]],
-    position_ids,
-    do_prefill = False,
-    attention_mask = None,
-):
+    position_ids: torch.LongTensor,
+    do_prefill: bool = False,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
     """
         https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L406
         Fast inference using KV cache.
@@ -370,7 +371,7 @@ pass
 class FastQwen3Model(FastLlamaModel):
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
         init_name, function = patch_linear_scaling(
             model_name         = "Qwen3",
             rope_module        = LlamaRotaryEmbedding,
@@ -403,19 +404,19 @@ class FastQwen3Model(FastLlamaModel):
 
     @staticmethod
     def from_pretrained(  #TODO: Change after release
-        model_name        = "Qwen/Qwen3-7B",
-        max_seq_length    = 4096,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None,
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str        = "Qwen/Qwen3-7B",
+        max_seq_length: int    = 4096,
+        dtype: Optional[torch.dtype]             = None,
+        load_in_4bit: bool      = True,
+        token: Optional[str]             = None,
+        device_map: str        = "sequential",
+        rope_scaling: Optional[dict]      = None,
+        fix_tokenizer: bool     = True,
+        model_patcher: Optional[Callable]     = None,
+        tokenizer_name: Optional[str]    = None,
+        trust_remote_code: bool = False,
         **kwargs,
-    ):
+    ) -> FastQwen3Model:
         return FastLlamaModel.from_pretrained(
             model_name        = model_name,
             max_seq_length    = max_seq_length,
