@@ -1,10 +1,12 @@
+from typing import Callable, Optional
+
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# 	 http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +25,7 @@ from transformers.models.qwen2.modeling_qwen2 import (
     Qwen2Model,
     Qwen2ForCausalLM,
 )
+
 # For Pytorch 2.1.1
 try:
     from transformers.models.qwen2.modeling_qwen2 import (
@@ -30,31 +33,59 @@ try:
         Qwen2FlashAttention2,
     )
 except:
-    Qwen2SdpaAttention   = Qwen2Attention
+    Qwen2SdpaAttention = Qwen2Attention
     Qwen2FlashAttention2 = Qwen2Attention
 pass
 
 
 class FastQwen2Model(FastLlamaModel):
+    """
+    A class that provides optimized versions of the Qwen2 model for faster training and inference.
+
+    This class inherits from `FastLlamaModel` and applies various optimizations to the Qwen2 model architecture, including patched attention mechanisms and rotary embeddings. It is designed to work with the Unsloth library for efficient LLM training and deployment.
+
+    Key Features:
+    - Optimized attention implementations (fast forward passes)
+    - Patched rotary embeddings for better performance
+    - Support for 4-bit quantization
+    - Sequence length optimization
+
+    Methods:
+    - `pre_patch()`: Static method that applies the model optimizations
+    - `from_pretrained()`: Loads a pretrained Qwen2 model with optimizations applied
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies optimizations to the Qwen2 model architecture by patching attention mechanisms and rotary embeddings.
+
+        This method does the following:
+        1. Patches linear scaling rotary embeddings
+        2. Replaces standard attention implementations with optimized versions
+        3. Fixes tokenizer compatibility issues
+        4. Optimizes model for CUDAGraph execution
+
+        Note: This method modifies the Qwen2 model classes in-place to enable faster execution.
+        """
         init_name, function = patch_linear_scaling(
-            model_name         = "qwen2",
-            rope_module        = LlamaRotaryEmbedding,
-            scaled_rope_module = LlamaLinearScalingRotaryEmbedding,
-            attention_module   = Qwen2Attention,
+            model_name="qwen2",
+            rope_module=LlamaRotaryEmbedding,
+            scaled_rope_module=LlamaLinearScalingRotaryEmbedding,
+            attention_module=Qwen2Attention,
         )
         if init_name is not None:
             exec(function, globals())
-            Qwen2Attention.__init__  = eval(init_name)
+            Qwen2Attention.__init__ = eval(init_name)
         pass
-        Qwen2Attention      .forward = LlamaAttention_fast_forward
-        Qwen2SdpaAttention  .forward = LlamaAttention_fast_forward
+        Qwen2Attention.forward = LlamaAttention_fast_forward
+        Qwen2SdpaAttention.forward = LlamaAttention_fast_forward
         Qwen2FlashAttention2.forward = LlamaAttention_fast_forward
-        Qwen2DecoderLayer   .forward = LlamaDecoderLayer_fast_forward
-        Qwen2Model          .forward = LlamaModel_fast_forward
-        Qwen2ForCausalLM    .forward = CausalLM_fast_forward(LlamaModel_fast_forward_inference)
+        Qwen2DecoderLayer.forward = LlamaDecoderLayer_fast_forward
+        Qwen2Model.forward = LlamaModel_fast_forward
+        Qwen2ForCausalLM.forward = CausalLM_fast_forward(
+            LlamaModel_fast_forward_inference
+        )
         PeftModelForCausalLM.forward = PeftModelForCausalLM_fast_forward
         fix_prepare_inputs_for_generation(Qwen2ForCausalLM)
 
@@ -64,39 +95,75 @@ class FastQwen2Model(FastLlamaModel):
         # https://github.com/huggingface/transformers/pull/27931
         # https://github.com/huggingface/transformers/blob/v4.37.2/src/transformers/models/llama/modeling_llama.py
         import transformers.models.qwen2.modeling_qwen2
-        transformers.models.qwen2.modeling_qwen2.Qwen2RotaryEmbedding = LlamaRotaryEmbedding
-        return
-    pass
 
+        transformers.models.qwen2.modeling_qwen2.Qwen2RotaryEmbedding = (
+            LlamaRotaryEmbedding
+        )
+        return
+
+    pass
 
     @staticmethod
     def from_pretrained(
-        model_name        = "Qwen/Qwen2-7B",
-        max_seq_length    = 4096,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None, # Qwen2 does not support RoPE scaling
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str = "Qwen/Qwen2-7B",
+        max_seq_length: int = 4096,
+        dtype: Optional[torch.dtype] = None,
+        load_in_4bit: bool = True,
+        token: Optional[str] = None,
+        device_map: str = "sequential",
+        rope_scaling: Optional[dict] = None,  # Qwen2 does not support RoPE scaling
+        fix_tokenizer: bool = True,
+        model_patcher: Optional[Callable] = None,
+        tokenizer_name: Optional[str] = None,
+        trust_remote_code: bool = False,
         **kwargs,
-    ):
+    ) -> FastQwen2Model:
+        """
+        Loads a pretrained Qwen2 model with optimizations applied.
+
+        Args:
+                model_name (`str`, optional):
+                        Name or path of the pretrained model. Defaults to "Qwen/Qwen2-7B"
+                max_seq_length (`int`, optional):
+                        Maximum sequence length for the model. Defaults to 4096
+                dtype (`torch.dtype`, optional):
+                        Data type for the model. If None, uses the default dtype
+                load_in_4bit (`bool`, optional):
+                        Whether to load the model in 4-bit precision. Defaults to True
+                token (`str`, optional):
+                        Authentication token for private models
+                device_map (`str`, optional):
+                        Device placement strategy. Defaults to "sequential"
+                rope_scaling (`dict`, optional):
+                        RoPE scaling configuration (Qwen2 does not support this)
+                fix_tokenizer (`bool`, optional):
+                        Whether to fix tokenizer compatibility issues. Defaults to True
+                model_patcher (`Callable`, optional):
+                        Custom model patching function
+                tokenizer_name (`str`, optional):
+                        Name of the tokenizer to use
+                trust_remote_code (`bool`, optional):
+                        Whether to trust remote code when loading the model. Defaults to False
+
+        Returns:
+                `FastQwen2Model`: An optimized instance of the Qwen2 model with all patches applied
+        """
         return FastLlamaModel.from_pretrained(
-            model_name        = model_name,
-            max_seq_length    = max_seq_length,
-            dtype             = dtype,
-            load_in_4bit      = load_in_4bit,
-            token             = token,
-            device_map        = device_map,
-            rope_scaling      = rope_scaling,
-            fix_tokenizer     = fix_tokenizer,
-            model_patcher     = FastQwen2Model,
-            tokenizer_name    = tokenizer_name,
-            trust_remote_code = trust_remote_code,
+            model_name=model_name,
+            max_seq_length=max_seq_length,
+            dtype=dtype,
+            load_in_4bit=load_in_4bit,
+            token=token,
+            device_map=device_map,
+            rope_scaling=rope_scaling,
+            fix_tokenizer=fix_tokenizer,
+            model_patcher=FastQwen2Model,
+            tokenizer_name=tokenizer_name,
+            trust_remote_code=trust_remote_code,
             **kwargs,
         )
+
     pass
+
+
 pass

@@ -3,11 +3,39 @@ from unsloth.registry.registry import ModelInfo, ModelMeta, QuantType, _register
 _IS_GEMMA_3_BASE_REGISTERED = False
 _IS_GEMMA_3_INSTRUCT_REGISTERED = False
 
+
 class GemmaModelInfo(ModelInfo):
+    """
+    Class representing information about Gemma models. This class is used to construct model names based on various parameters such as base name, version, size, quantization type, and instruction tag.
+    """
+
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(
+        cls,
+        base_name: str,
+        version: str,
+        size: str,
+        quant_type: QuantType,
+        instruct_tag: str,
+    ) -> str:
+        """
+        Constructs a model name based on the provided parameters.
+
+        Args:
+                base_name (str): The base name of the model.
+                version (str): The version of the model.
+                size (str): The size of the model (e.g., '1', '4', '12', '27').
+                quant_type (QuantType): The quantization type of the model.
+                instruct_tag (str): The instruction tag for the model (e.g., 'pt' for base models, 'it' for instruction-tuned models).
+
+        Returns:
+                str: The constructed model name.
+        """
         key = f"{base_name}-{version}-{size}B"
-        return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
+        return super().construct_model_name(
+            base_name, version, size, quant_type, instruct_tag, key
+        )
+
 
 # Gemma3 Base Model Meta
 GemmaMeta3Base = ModelMeta(
@@ -33,31 +61,53 @@ GemmaMeta3Instruct = ModelMeta(
     quant_types=[QuantType.NONE, QuantType.BNB, QuantType.UNSLOTH, QuantType.GGUF],
 )
 
-def register_gemma_3_base_models(include_original_model: bool = False):
+
+def register_gemma_3_base_models(include_original_model: bool = False) -> None:
+    """
+    Registers Gemma 3 base models in the model registry. These are the base versions of the Gemma models that have not been instruction-tuned.
+
+    Args:
+            include_original_model (bool, optional): Whether to include the original, unmodified model in the registry. Defaults to False.
+    """
     global _IS_GEMMA_3_BASE_REGISTERED
     if _IS_GEMMA_3_BASE_REGISTERED:
         return
     _register_models(GemmaMeta3Base, include_original_model=include_original_model)
     _IS_GEMMA_3_BASE_REGISTERED = True
 
-def register_gemma_3_instruct_models(include_original_model: bool = False):
+
+def register_gemma_3_instruct_models(include_original_model: bool = False) -> None:
+    """
+    Registers Gemma 3 instruction-tuned models in the model registry. These models have been fine-tuned on instruction-following data.
+
+    Args:
+            include_original_model (bool, optional): Whether to include the original, unmodified model in the registry. Defaults to False.
+    """
     global _IS_GEMMA_3_INSTRUCT_REGISTERED
     if _IS_GEMMA_3_INSTRUCT_REGISTERED:
         return
     _register_models(GemmaMeta3Instruct, include_original_model=include_original_model)
     _IS_GEMMA_3_INSTRUCT_REGISTERED = True
 
-def register_gemma_models(include_original_model: bool = False):
+
+def register_gemma_models(include_original_model: bool = False) -> None:
+    """
+    Registers all Gemma 3 models (both base and instruction-tuned versions) in the model registry.
+
+    Args:
+            include_original_model (bool, optional): Whether to include the original, unmodified model in the registry. Defaults to False.
+    """
     register_gemma_3_base_models(include_original_model=include_original_model)
     register_gemma_3_instruct_models(include_original_model=include_original_model)
 
 
 if __name__ == "__main__":
     from unsloth.registry.registry import MODEL_REGISTRY, _check_model_info
+
     MODEL_REGISTRY.clear()
-    
+
     register_gemma_models(include_original_model=True)
-    
+
     for model_id, model_info in MODEL_REGISTRY.items():
         model_info = _check_model_info(model_id)
         if model_info is None:
