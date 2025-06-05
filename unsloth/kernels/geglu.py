@@ -23,7 +23,27 @@ from .utils import (
 
 
 @triton.jit
-def _exact_forward_kernel(e, g, h, n_elements, BLOCK_SIZE : tl.constexpr,):
+def _exact_forward_kernel(e: torch.Tensor, g: torch.Tensor, h: torch.Tensor, n_elements: int, BLOCK_SIZE : tl.constexpr,) -> None:
+    """
+    Triton kernel for computing the exact GELU forward pass using the error function.
+    
+    Computes f = 1/2 * e * (1 + erf(1/sqrt(2) * e)) and h = f * up.
+    
+    Args:
+        e (`torch.Tensor`):
+            Input tensor containing the gate values.
+        g (`torch.Tensor`):
+            Input tensor containing the up projection values.
+        h (`torch.Tensor`):
+            Output tensor to store the result.
+        n_elements (`int`):
+            Total number of elements to process.
+        BLOCK_SIZE (`tl.constexpr`):
+            Block size for Triton kernel execution.
+    
+    Returns:
+        None
+    """
     block_idx = tl.program_id(0)
     offsets = block_idx*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n_elements
@@ -42,7 +62,21 @@ def _exact_forward_kernel(e, g, h, n_elements, BLOCK_SIZE : tl.constexpr,):
 pass
 
 
-def geglu_exact_forward_kernel(gate, up):
+def geglu_exact_forward_kernel(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the exact GELU forward pass for the GEGLU activation function.
+    
+    Uses the exact GELU formula with the error function for high precision computation.
+    
+    Args:
+        gate (`torch.Tensor`):
+            Gate tensor of shape (batch, seq_len, hidden_dim).
+        up (`torch.Tensor`):
+            Up projection tensor of shape (batch, seq_len, hidden_dim).
+    
+    Returns:
+        `torch.Tensor`: Output tensor of shape (batch, seq_len, hidden_dim) containing the GEGLU activation result.
+    """
     batch, seq_len, hd = gate.shape
     n_elements = gate.numel()
     device = gate.device
@@ -55,7 +89,7 @@ pass
 
 
 @triton.jit
-def _exact_backward_kernel(DW, e, g, n_elements, BLOCK_SIZE : tl.constexpr,):
+def _exact_backward_kernel(DW: torch.Tensor, e: torch.Tensor, g: torch.Tensor, n_elements: int, BLOCK_SIZE : tl.constexpr,) -> None:
     """
     f = 1/2 * e * (1 + erf(1/sqrt(2) * e))
     h = f * up
@@ -101,7 +135,23 @@ def _exact_backward_kernel(DW, e, g, n_elements, BLOCK_SIZE : tl.constexpr,):
 pass
 
 
-def geglu_exact_backward_kernel(DW, e, g):
+def geglu_exact_backward_kernel(DW: torch.Tensor, e: torch.Tensor, g: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Compute the exact GELU backward pass for the GEGLU activation function.
+    
+    Computes gradients with respect to the gate and up projection tensors using the exact GELU derivative.
+    
+    Args:
+        DW (`torch.Tensor`):
+            Gradient tensor from upstream computation.
+        e (`torch.Tensor`):
+            Gate tensor values.
+        g (`torch.Tensor`):
+            Up projection tensor values.
+    
+    Returns:
+        `tuple[torch.Tensor, torch.Tensor, torch.Tensor]`: Tuple containing the computed gradients (DW, e, g).
+    """
     batch_seq_len, hd = e.shape
     n_elements = e.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
@@ -112,7 +162,27 @@ pass
 
 
 @triton.jit
-def _approx_forward_kernel(e, g, h, n_elements, BLOCK_SIZE : tl.constexpr,):
+def _approx_forward_kernel(e: torch.Tensor, g: torch.Tensor, h: torch.Tensor, n_elements: int, BLOCK_SIZE : tl.constexpr,) -> None:
+    """
+    Triton kernel for computing the approximate GELU forward pass using tanh approximation.
+    
+    Computes f = 1/2 * e * (1 + tanh(sqrt(2/pi) * e * (1 + 0.044715 * e^2))) and h = f * up.
+    
+    Args:
+        e (`torch.Tensor`):
+            Input tensor containing the gate values.
+        g (`torch.Tensor`):
+            Input tensor containing the up projection values.
+        h (`torch.Tensor`):
+            Output tensor to store the result.
+        n_elements (`int`):
+            Total number of elements to process.
+        BLOCK_SIZE (`tl.constexpr`):
+            Block size for Triton kernel execution.
+    
+    Returns:
+        None
+    """
     block_idx = tl.program_id(0)
     offsets = block_idx*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n_elements
@@ -137,7 +207,21 @@ def _approx_forward_kernel(e, g, h, n_elements, BLOCK_SIZE : tl.constexpr,):
 pass
 
 
-def geglu_approx_forward_kernel(gate, up):
+def geglu_approx_forward_kernel(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the approximate GELU forward pass for the GEGLU activation function.
+    
+    Uses the tanh-based approximation of GELU for faster computation with slight accuracy trade-off.
+    
+    Args:
+        gate (`torch.Tensor`):
+            Gate tensor of shape (batch, seq_len, hidden_dim).
+        up (`torch.Tensor`):
+            Up projection tensor of shape (batch, seq_len, hidden_dim).
+    
+    Returns:
+        `torch.Tensor`: Output tensor of shape (batch, seq_len, hidden_dim) containing the GEGLU activation result.
+    """
     batch, seq_len, hd = gate.shape
     n_elements = gate.numel()
     device = gate.device
@@ -150,7 +234,7 @@ pass
 
 
 @triton.jit
-def _approx_backward_kernel(DW, e, g, n_elements, BLOCK_SIZE : tl.constexpr,):
+def _approx_backward_kernel(DW: torch.Tensor, e: torch.Tensor, g: torch.Tensor, n_elements: int, BLOCK_SIZE : tl.constexpr,) -> None:
     """
     f = 1/2 * e * (1 + tanh( sqrt(2/pi) * x * (1 + 0.044715 * x^2 ) ))
     h = f * up
@@ -203,7 +287,23 @@ def _approx_backward_kernel(DW, e, g, n_elements, BLOCK_SIZE : tl.constexpr,):
 pass
 
 
-def geglu_approx_backward_kernel(DW, e, g):
+def geglu_approx_backward_kernel(DW: torch.Tensor, e: torch.Tensor, g: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Compute the approximate GELU backward pass for the GEGLU activation function.
+    
+    Computes gradients with respect to the gate and up projection tensors using the tanh-based GELU approximation derivative.
+    
+    Args:
+        DW (`torch.Tensor`):
+            Gradient tensor from upstream computation.
+        e (`torch.Tensor`):
+            Gate tensor values.
+        g (`torch.Tensor`):
+            Up projection tensor values.
+    
+    Returns:
+        `tuple[torch.Tensor, torch.Tensor, torch.Tensor]`: Tuple containing the computed gradients (DW, e, g).
+    """
     batch_seq_len, hd = e.shape
     n_elements = e.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
