@@ -1,3 +1,4 @@
+from typing import Tuple, T, Optional, Any, Type
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -56,16 +57,49 @@ pass
 def Qwen3Attention_fast_forward(
     self,
     hidden_states:       torch.Tensor,
-    causal_mask:         Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:      Optional[torch.Tensor] = None,
-    position_ids:        Optional[torch.LongTensor] = None,
-    past_key_value:      Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:   bool = False,
-    use_cache:           bool = False,
-    padding_mask:        Optional[torch.LongTensor] = None,
+    causal_mask:         Optional[BlockDiagonalCausalMask]           = None,
+    attention_mask:      Optional[torch.Tensor]                      = None,
+    position_ids:        Optional[torch.LongTensor]                  = None,
+    past_key_value:      Optional[Tuple[torch.Tensor]]               = None,
+    output_attentions:   bool                                        = False,
+    use_cache:           bool                                        = False,
+    padding_mask:        Optional[torch.LongTensor]                  = None,
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    """
+    Implements the forward pass for the Qwen3Attention module with optimizations for both training and inference.
+    
+    Args:
+        hidden_states (`torch.Tensor`):
+            The input hidden states of the self-attention layer of shape (batch_size, sequence_length, hidden_size).
+        causal_mask (`Optional[BlockDiagonalCausalMask]`):
+            The causal mask for the self-attention.
+        attention_mask (`Optional[torch.Tensor]`):
+            The attention mask to apply to the self-attention.
+        position_ids (`Optional[torch.LongTensor]`):
+            The position indices of tokens in the position embedding.
+        past_key_value (`Optional[Tuple[torch.Tensor]]`):
+            The past key and value states from previous attention calls.
+        output_attentions (`bool`):
+            Whether or not to return the attentions tensors of all attention layers.
+        use_cache (`bool`):
+            Whether or not the key-value cache should be used for fast inference.
+        padding_mask (`Optional[torch.LongTensor]`):
+            The padding mask where the value `1` indicates the corresponding token is not a padding token.
+        position_embeddings (`Optional[Tuple[torch.Tensor, torch.Tensor]]`):
+            The position embeddings to use for the RoPE.
+    
+    Returns:
+        A tuple containing:
+            - `attn_output` (`torch.Tensor`):
+                The output of the attention layer of shape (batch_size, sequence_length, hidden_size).
+            - `attn_weights` (`Optional[torch.Tensor]`):
+                The attention weights of shape (batch_size, num_heads, sequence_length, key_value_length) if
+                `output_attentions` is True, otherwise None.
+            - `past_key_value` (`Optional[Tuple[torch.Tensor]]`):
+                The updated past key and value states if `use_cache` is True, otherwise None.
+    """
     
     # Clear inference
     if hasattr(self, "paged_attention"):
@@ -200,10 +234,10 @@ def Qwen3Attention_fast_forward_inference(
     self,
     hidden_states:  torch.Tensor,
     past_key_value: Optional[Tuple[torch.Tensor]],
-    position_ids,
-    do_prefill = False,
-    attention_mask = None,
-):
+    position_ids: torch.LongTensor,
+    do_prefill: bool                       = False,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
         https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L406
         Fast inference using KV cache.
@@ -368,9 +402,30 @@ def Qwen3Attention_fast_forward_inference(
 pass
 
 class FastQwen3Model(FastLlamaModel):
+    """
+    A fast version of the Qwen3 model with optimized attention mechanisms and training/inference capabilities.
+    
+    This class provides a patched version of the Qwen3 model with enhanced performance through optimized
+    attention layers and other modifications.
+    
+    Methods:
+        pre_patch():
+            Applies patches to the Qwen3 model to enable fast inference and training.
+        from_pretrained():
+            Loads a pre-trained Qwen3 model with specified configurations.
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies necessary patches to the Qwen3 model to optimize its performance for training and inference.
+        
+        This method modifies the forward functions of the attention modules and other components to
+        enable faster execution.
+        
+        Returns:
+            None
+        """
         init_name, function = patch_linear_scaling(
             model_name         = "Qwen3",
             rope_module        = LlamaRotaryEmbedding,
@@ -403,19 +458,50 @@ class FastQwen3Model(FastLlamaModel):
 
     @staticmethod
     def from_pretrained(  #TODO: Change after release
-        model_name        = "Qwen/Qwen3-7B",
-        max_seq_length    = 4096,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None,
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str                               = "Qwen/Qwen3-7B",
+        max_seq_length: int                           = 4096,
+        dtype: Optional[torch.dtype]                  = None,
+        load_in_4bit: bool                            = True,
+        token: Optional[str]                          = None,
+        device_map: str                               = "sequential",
+        rope_scaling: Optional[Any]                   = None,
+        fix_tokenizer: bool                           = True,
+        model_patcher: Optional[Type[FastQwen3Model]] = None,
+        tokenizer_name: Optional[str]                 = None,
+        trust_remote_code: bool                       = False,
         **kwargs,
-    ):
+    ) -> FastQwen3Model:
+        """
+        Loads a pre-trained Qwen3 model with specified configurations.
+        
+        Args:
+            model_name (`str`):
+                The name or path of the pre-trained model.
+            max_seq_length (`int`):
+                The maximum sequence length for the model.
+            dtype (`Optional[torch.dtype]`):
+                The data type for the model weights.
+            load_in_4bit (`bool`):
+                Whether to load the model in 4-bit precision for memory efficiency.
+            token (`Optional[str]`):
+                The token for accessing private models.
+            device_map (`str`):
+                The device map for distributed training.
+            rope_scaling (`Optional[Any]`):
+                The scaling factor for the RoPE embeddings.
+            fix_tokenizer (`bool`):
+                Whether to fix the tokenizer configuration.
+            model_patcher (`Optional[Type[FastQwen3Model]]`):
+                The model patcher to apply additional modifications.
+            tokenizer_name (`Optional[str]`):
+                The name or path of the tokenizer.
+            trust_remote_code (`bool`):
+                Whether to trust remote code for the model.
+        
+        Returns:
+            `FastQwen3Model`:
+                The loaded and configured FastQwen3Model instance.
+        """
         return FastLlamaModel.from_pretrained(
             model_name        = model_name,
             max_seq_length    = max_seq_length,

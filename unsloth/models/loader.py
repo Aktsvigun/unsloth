@@ -1,3 +1,4 @@
+from typing import Union, Optional
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -78,32 +79,90 @@ FORCE_FLOAT32 = [
 ]
 
 class FastLanguageModel(FastLlamaModel):
+    """
+    A class that provides fast loading and optimization of language models. It extends `FastLlamaModel` and is designed for efficient model training and inference.
+    
+    This class includes methods for loading pre-trained models with support for quantization (4-bit or 8-bit), gradient checkpointing, and other optimizations.
+    
+    Methods:
+        `from_pretrained(...)`: Loads a pre-trained model and tokenizer with various configuration options for optimization and training.
+    """
     @staticmethod
     def from_pretrained(
-        model_name                 = "unsloth/Llama-3.2-1B-Instruct",
-        max_seq_length             = 2048,
-        dtype                      = None,
-        load_in_4bit               = True,
-        load_in_8bit               = False,
-        full_finetuning            = False,
-        token                      = None,
-        device_map                 = "sequential",
-        rope_scaling               = None,
-        fix_tokenizer              = True,
-        trust_remote_code          = False,
-        use_gradient_checkpointing = "unsloth",
-        resize_model_vocab         = None,
-        revision                   = None,
-        use_exact_model_name       = False,
+        model_name: str                              = "unsloth/Llama-3.2-1B-Instruct",
+        max_seq_length: int                          = 2048,
+        dtype: Optional[torch.dtype]                 = None,
+        load_in_4bit: bool                           = True,
+        load_in_8bit: bool                           = False,
+        full_finetuning: bool                        = False,
+        token: Optional[str]                         = None,
+        device_map: str                              = "sequential",
+        rope_scaling: Optional[dict]                 = None,
+        fix_tokenizer: bool                          = True,
+        trust_remote_code: bool                      = False,
+        use_gradient_checkpointing: Union[str, bool] = "unsloth",
+        resize_model_vocab: Optional[int]            = None,
+        revision: Optional[str]                      = None,
+        use_exact_model_name: bool                   = False,
 
-        fast_inference             = False, # uses vLLM
-        gpu_memory_utilization     = 0.5,
-        float8_kv_cache            = False,
-        random_state               = 3407,
-        max_lora_rank              = 64,
-        disable_log_stats          = True,
+        fast_inference: bool                         = False, # uses vLLM
+        gpu_memory_utilization: float                = 0.5,
+        float8_kv_cache: bool                        = False,
+        random_state: int                            = 3407,
+        max_lora_rank: int                           = 64,
+        disable_log_stats: bool                      = True,
         *args, **kwargs,
-    ):
+    ) -> tuple[FastLanguageModel, Any]:
+        """
+        Loads a pre-trained model and tokenizer with optimized settings.
+        
+        Args:
+            model_name (`str`):
+                Name of the pre-trained model to load.
+            max_seq_length (`int`):
+                Maximum sequence length for the model.
+            dtype (`torch.dtype`, *optional*):
+                Data type for model weights. Defaults to `torch.float16` or `torch.bfloat16` based on device support.
+            load_in_4bit (`bool`):
+                Whether to load the model in 4-bit quantization.
+            load_in_8bit (`bool`):
+                Whether to load the model in 8-bit quantization.
+            full_finetuning (`bool`):
+                Whether to enable full finetuning mode.
+            token (`str`, *optional*):
+                Authentication token for Hugging Face Hub.
+            device_map (`str`):
+                Device map for model loading (e.g., 'sequential').
+            rope_scaling (`dict`, *optional*):
+                Configuration for rope scaling.
+            fix_tokenizer (`bool`):
+                Whether to fix the tokenizer.
+            trust_remote_code (`bool`):
+                Whether to trust remote code from Hugging Face Hub.
+            use_gradient_checkpointing (`Union[str, bool]`):
+                Whether to use gradient checkpointing.
+            resize_model_vocab (`int`, *optional*):
+                Resize the model's vocabulary to this size.
+            revision (`str`, *optional*):
+                Revision of the model to load.
+            use_exact_model_name (`bool`):
+                Whether to use the exact model name without modifications.
+            fast_inference (`bool`):
+                Whether to use fast inference (e.g., vLLM).
+            gpu_memory_utilization (`float`):
+                GPU memory utilization for fast inference.
+            float8_kv_cache (`bool`):
+                Whether to use float8 for key-value cache.
+            random_state (`int`):
+                Random seed for reproducibility.
+            max_lora_rank (`int`):
+                Maximum rank for LoRA adaptation.
+            disable_log_stats (`bool`):
+                Whether to disable logging statistics.
+        
+        Returns:
+            `tuple[FastLanguageModel, Any]`: A tuple containing the loaded model and tokenizer.
+        """
         if load_in_8bit or full_finetuning:
             return FastModel.from_pretrained(
                 model_name                 = model_name,
@@ -469,31 +528,89 @@ DISABLE_COMPILE_MODEL_NAMES = [
 
 
 class FastModel(FastBaseModel):
+    """
+    A base class for fast model loading and optimization. It provides methods for loading pre-trained models with various configurations and optimizations.
+    
+    This class is extended by `FastLanguageModel`, `FastVisionModel`, and `FastTextModel` to provide specialized functionality for different types of models.
+    
+    Methods:
+        `from_pretrained(...)`: Loads a pre-trained model and tokenizer with optimized settings.
+    """
     @staticmethod
     def from_pretrained(
-        model_name                 = "unsloth/Llama-3.2-11B-Vision-Instruct-bnb-4bit",
-        max_seq_length             = 2048,
-        dtype                      = None,
-        load_in_4bit               = True,
-        load_in_8bit               = False,
-        full_finetuning            = False,
-        token                      = None,
-        device_map                 = "sequential",
-        rope_scaling               = None, # [TODO] No effect
-        fix_tokenizer              = True, # [TODO] No effect
-        trust_remote_code          = False,
-        use_gradient_checkpointing = "unsloth",
-        resize_model_vocab         = None, # [TODO] No effect
-        revision                   = None,
-        return_logits              = False, # Return logits
-        fullgraph                  = True, # No graph breaks
-        use_exact_model_name       = False,
-        auto_model                 = None,
-        whisper_language           = None,
-        whisper_task               = None,
-        unsloth_force_compile      = False,
+        model_name: str                              = "unsloth/Llama-3.2-11B-Vision-Instruct-bnb-4bit",
+        max_seq_length: int                          = 2048,
+        dtype: Optional[torch.dtype]                 = None,
+        load_in_4bit: bool                           = True,
+        load_in_8bit: bool                           = False,
+        full_finetuning: bool                        = False,
+        token: Optional[str]                         = None,
+        device_map: str                              = "sequential",
+        rope_scaling: Optional[dict]                 = None, # [TODO] No effect
+        fix_tokenizer: bool                          = True, # [TODO] No effect
+        trust_remote_code: bool                      = False,
+        use_gradient_checkpointing: Union[str, bool] = "unsloth",
+        resize_model_vocab: Optional[int]            = None, # [TODO] No effect
+        revision: Optional[str]                      = None,
+        return_logits: bool                          = False, # Return logits
+        fullgraph: bool                              = True, # No graph breaks
+        use_exact_model_name: bool                   = False,
+        auto_model: Optional[type]                   = None,
+        whisper_language: Optional[str]              = None,
+        whisper_task: Optional[str]                  = None,
+        unsloth_force_compile: bool                  = False,
         *args, **kwargs,
-    ):
+    ) -> tuple[FastModel, Any]:
+        """
+        Loads a pre-trained model and tokenizer with optimized settings.
+        
+        Args:
+            model_name (`str`):
+                Name of the pre-trained model to load.
+            max_seq_length (`int`):
+                Maximum sequence length for the model.
+            dtype (`torch.dtype`, *optional*):
+                Data type for model weights. Defaults to `torch.float16` or `torch.bfloat16` based on device support.
+            load_in_4bit (`bool`):
+                Whether to load the model in 4-bit quantization.
+            load_in_8bit (`bool`):
+                Whether to load the model in 8-bit quantization.
+            full_finetuning (`bool`):
+                Whether to enable full finetuning mode.
+            token (`str`, *optional*):
+                Authentication token for Hugging Face Hub.
+            device_map (`str`):
+                Device map for model loading (e.g., 'sequential').
+            rope_scaling (`dict`, *optional*):
+                Configuration for rope scaling.
+            fix_tokenizer (`bool`):
+                Whether to fix the tokenizer.
+            trust_remote_code (`bool`):
+                Whether to trust remote code from Hugging Face Hub.
+            use_gradient_checkpointing (`Union[str, bool]`):
+                Whether to use gradient checkpointing.
+            resize_model_vocab (`int`, *optional*):
+                Resize the model's vocabulary to this size.
+            revision (`str`, *optional*):
+                Revision of the model to load.
+            return_logits (`bool`):
+                Whether to return logits.
+            fullgraph (`bool`):
+                Whether to use full graph for compilation.
+            use_exact_model_name (`bool`):
+                Whether to use the exact model name without modifications.
+            auto_model (`type`, *optional*):
+                Auto model class to use.
+            whisper_language (`str`, *optional*):
+                Language for Whisper models.
+            whisper_task (`str`, *optional*):
+                Task for Whisper models.
+            unsloth_force_compile (`bool`):
+                Whether to force compilation.
+        
+        Returns:
+            `tuple[FastModel, Any]`: A tuple containing the loaded model and tokenizer.
+        """
         if token is None: token = get_token()
         if whisper_language is not None: assert(type(whisper_language) is str)
         if whisper_task is not None: assert(type(whisper_task) is str)

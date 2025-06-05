@@ -1,3 +1,4 @@
+from typing import Optional
 from unsloth.registry.registry import ModelInfo, ModelMeta, QuantType, _register_models
 
 _IS_QWEN_2_5_REGISTERED = False
@@ -5,26 +6,26 @@ _IS_QWEN_2_5_VL_REGISTERED = False
 _IS_QWEN_QWQ_REGISTERED = False
 class QwenModelInfo(ModelInfo):
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(cls, base_name: str, version: str, size: str, quant_type: QuantType, instruct_tag: Optional[str]) -> str:
         key = f"{base_name}{version}-{size}B"
         return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
 
 
 class QwenVLModelInfo(ModelInfo):
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(cls, base_name: str, version: str, size: str, quant_type: QuantType, instruct_tag: Optional[str]) -> str:
         key = f"{base_name}{version}-VL-{size}B"
         return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
 
 class QwenQwQModelInfo(ModelInfo):
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(cls, base_name: str, version: str, size: str, quant_type: QuantType, instruct_tag: Optional[str]) -> str:
         key = f"{base_name}-{size}B"
         return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
     
 class QwenQVQPreviewModelInfo(ModelInfo):
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(cls, base_name: str, version: str, size: str, quant_type: QuantType, instruct_tag: Optional[str]) -> str:
         key = f"{base_name}-{size}B-Preview"
         return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
     
@@ -76,21 +77,21 @@ QwenQVQPreviewMeta = ModelMeta(
     quant_types=[QuantType.NONE, QuantType.BNB],
 )
 
-def register_qwen_2_5_models(include_original_model: bool = False):
+def register_qwen_2_5_models(include_original_model: bool = False) -> None:
     global _IS_QWEN_2_5_REGISTERED
     if _IS_QWEN_2_5_REGISTERED:
         return
     _register_models(Qwen_2_5_Meta, include_original_model=include_original_model)
     _IS_QWEN_2_5_REGISTERED = True
 
-def register_qwen_2_5_vl_models(include_original_model: bool = False):
+def register_qwen_2_5_vl_models(include_original_model: bool = False) -> None:
     global _IS_QWEN_2_5_VL_REGISTERED
     if _IS_QWEN_2_5_VL_REGISTERED:
         return
     _register_models(Qwen_2_5_VLMeta, include_original_model=include_original_model)
     _IS_QWEN_2_5_VL_REGISTERED = True
 
-def register_qwen_qwq_models(include_original_model: bool = False):
+def register_qwen_qwq_models(include_original_model: bool = False) -> None:
     global _IS_QWEN_QWQ_REGISTERED
     if _IS_QWEN_QWQ_REGISTERED:
         return
@@ -98,7 +99,7 @@ def register_qwen_qwq_models(include_original_model: bool = False):
     _register_models(QwenQVQPreviewMeta, include_original_model=include_original_model)
     _IS_QWEN_QWQ_REGISTERED = True
 
-def register_qwen_models(include_original_model: bool = False):
+def register_qwen_models(include_original_model: bool = False) -> None:
     register_qwen_2_5_models(include_original_model=include_original_model)
     register_qwen_2_5_vl_models(include_original_model=include_original_model)
     register_qwen_qwq_models(include_original_model=include_original_model)

@@ -1,3 +1,4 @@
+from typing import Any, Optional
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,7 +47,24 @@ from unsloth_zoo.utils import Version, _get_dtype
 
 
 torch_nn_functional_softmax = torch.nn.functional.softmax
-def Qwen3MoeSparseMoeBlock_fast_forward(self, X, temp_gate = None, temp_up = None):
+def Qwen3MoeSparseMoeBlock_fast_forward(self, X: torch.Tensor, temp_gate: Optional[torch.Tensor] = None, temp_up: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Performs a fast forward pass through a Mixture of Experts (MoE) block.
+    
+    Args:
+        self (`Qwen3MoeSparseMoeBlock`):
+            The MoE block instance.
+        X (`torch.Tensor`):
+            Input tensor of shape (batch_size, sequence_length, hidden_dim).
+    temp_gate (`torch.Tensor`, *optional*):
+            Temporary tensor for the gate output.
+    temp_up (`torch.Tensor`, *optional*):
+            Temporary tensor for the up projection.
+    
+    Returns:
+        `torch.Tensor`: The output tensor after applying the MoE block.
+        `torch.Tensor`: The router logits.
+    """
     # adapted from https://github.com/huggingface/transformers/pull/36878/files#diff-0855b77fc27ad9449158a1c74953f909b011c00de7125f7c8e68d0ff209c092aR356-R370
     
     bsz, seq_len, hd = X.shape
@@ -89,17 +107,40 @@ pass
 def Qwen3MoeDecoderLayer_fast_forward(
     self,
     hidden_states:        torch.Tensor,
-    causal_mask:          Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:       Optional[torch.Tensor] = None,
-    position_ids:         Optional[torch.LongTensor] = None,
-    past_key_value:       Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:    Optional[bool] = False,
-    output_router_logits:    Optional[bool] = False,
-    use_cache:            Optional[bool] = False,
-    padding_mask:         Optional[torch.LongTensor] = None,
+    causal_mask:          Optional[BlockDiagonalCausalMask]           = None,
+    attention_mask:       Optional[torch.Tensor]                      = None,
+    position_ids:         Optional[torch.LongTensor]                  = None,
+    past_key_value:       Optional[Tuple[torch.Tensor]]               = None,
+    output_attentions:    Optional[bool]                              = False,
+    output_router_logits:    Optional[bool]                           = False,
+    use_cache:            Optional[bool]                              = False,
+    padding_mask:         Optional[torch.LongTensor]                  = None,
     position_embeddings:  Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
-):
+) -> tuple[torch.Tensor, ...]:
+    """
+    Performs a fast forward pass through a decoder layer.
+    
+    Args:
+        self (`Qwen3MoeDecoderLayer`):
+            The decoder layer instance.    hidden_states (`torch.Tensor`):
+            The input tensor of shape (batch_size, sequence_length, hidden_dim).    causal_mask (`BlockDiagonalCausalMask`, *optional*):
+            The causal mask for the self-attention.    attention_mask (`torch.Tensor`, *optional*):
+            The attention mask for the self-attention.    position_ids (`torch.LongTensor`, *optional*):
+            The position ids for the self-attention.    past_key_value (`Tuple[torch.Tensor]`, *optional*):
+            The past key and value tensors for the self-attention.    output_attentions (`bool`, *optional*):
+            Whether to output the attention weights.    output_router_logits (`bool`, *optional*):
+            Whether to output the router logits.    use_cache (`bool`, *optional*):
+            Whether to use the past key and value tensors.    padding_mask (`torch.LongTensor`, *optional*):
+            The padding mask for the self-attention.    position_embeddings (`Tuple[torch.Tensor, torch.Tensor]`, *optional*):
+            The position embeddings for the self-attention.
+        *args: Additional arguments.
+        **kwargs: Additional keyword arguments.
+    
+    Returns:
+        `tuple[torch.Tensor, ...]`: A tuple containing the output tensor and optionally the attention weights,
+        router logits, and past key and value tensors.
+    """
     residual = hidden_states
 
     if use_cache and hasattr(self, "_flag_for_generation"): #past_key_value is not None:
@@ -156,9 +197,30 @@ def Qwen3MoeDecoderLayer_fast_forward(
 
 
 class FastQwen3MoeModel(FastQwen3Model):
+    """
+    A fast version of the Qwen3 Mixture of Experts (MoE) model.
+    
+    This class provides optimized implementations for the MoE model, including fast forward passes for the
+    MoE blocks and decoder layers.
+    
+    Methods:
+        pre_patch():
+            Applies patches to the model components to enable fast inference.
+        from_pretrained():
+            Loads a pre-trained model from a specified model name or path.
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies patches to the model components to enable fast inference.
+        
+        This method modifies the forward methods of the model components to use optimized implementations,
+        which can improve the inference speed and efficiency.
+        
+        Returns:
+            None
+        """
         init_name, function = patch_linear_scaling(
             model_name         = "Qwen3Moe",
             rope_module        = LlamaRotaryEmbedding,
@@ -193,19 +255,40 @@ class FastQwen3MoeModel(FastQwen3Model):
 
     @staticmethod
     def from_pretrained(  #TODO: Change after release
-        model_name        = "Qwen/Qwen3-7B",
-        max_seq_length    = 4096,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None,
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str                               = "Qwen/Qwen3-7B",
+        max_seq_length: int                           = 4096,
+        dtype: Optional[torch.dtype]                  = None,
+        load_in_4bit: bool                            = True,
+        token: Optional[str]                          = None,
+        device_map: str                               = "sequential",
+        rope_scaling: Optional[Any]                   = None,
+        fix_tokenizer: bool                           = True,
+        model_patcher: Optional[type[FastQwen3Model]] = None,
+        tokenizer_name: Optional[str]                 = None,
+        trust_remote_code: bool                       = False,
         **kwargs,
-    ):
+    ) -> FastQwen3Model:
+        """
+        Loads a pre-trained Qwen3 Mixture of Experts (MoE) model from a specified model name or path.
+        
+        Args:
+            model_name (`str`):
+                The name or path of the pre-trained model.    max_seq_length (`int`):
+                The maximum sequence length for the model.    dtype (`torch.dtype`, *optional*):
+                The data type for the model weights.    load_in_4bit (`bool`):
+                Whether to load the model in 4-bit quantization.    token (`str`, *optional*):
+                The token for accessing the model.    device_map (`str`):
+                The device map for distributing the model.    rope_scaling (`Any`, *optional*):
+                The rope scaling configuration.    fix_tokenizer (`bool`):
+                Whether to fix the tokenizer.    model_patcher (`type[FastQwen3Model]`, *optional*):
+                The model patcher class.    tokenizer_name (`str`, *optional*):
+                The name or path of the tokenizer.    trust_remote_code (`bool`):
+                Whether to trust remote code.
+            **kwargs: Additional keyword arguments.
+        
+        Returns:
+            `FastQwen3Model`: The loaded pre-trained model.
+        """
         return FastLlamaModel.from_pretrained(
             model_name        = model_name,
             max_seq_length    = max_seq_length,

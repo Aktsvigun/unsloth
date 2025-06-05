@@ -24,20 +24,54 @@ NOTE: This is NOT to be used for production as it contains many extra checks and
 
 
 class Qwen3MoeFusedGroupedGEMMBlock(Qwen3MoeGroupedGEMMBlock):
+    """
+    A fused implementation of the Mixture-of-Experts (MoE) block using grouped GEMM operations.
+    
+    This class extends `Qwen3MoeGroupedGEMMBlock` and replaces the native PyTorch grouped GEMM implementation with a custom
+    Triton-based implementation for improved performance.
+    
+    NOTE: This implementation is intended for reference and debugging purposes only and should not be used in production
+    due to the inclusion of additional checks and the storage of intermediate results for debugging.
+    
+    Args:
+        config (`Qwen3MoeConfig`):
+            The configuration object for the MoE block.
+        gate (`torch.Tensor`):
+            The gate weights for the MoE block.
+        gate_up_proj (`torch.Tensor`):
+            The concatenated gate and up projection weights.    down_proj (`torch.Tensor`):
+            The down projection weights.
+        permute_x (`bool`, defaults to `True`):
+            Whether to permute the input tensor before the first grouped GEMM operation.
+        permute_y (`bool`, defaults to `True`):
+            Whether to permute the output tensor after the second grouped GEMM operation.
+        autotune (`bool`, defaults to `True`):
+            Whether to automatically tune the kernel configurations for the grouped GEMM operations.
+        kernel_config_fwd (`KernelConfigForward`, optional):
+            The kernel configuration for the forward pass of the grouped GEMM operations.
+        kernel_config_bwd_dW (`KernelConfigBackward_dW`, optional):
+            The kernel configuration for the backward pass of the weight gradients in the grouped GEMM operations.
+        kernel_config_bwd_dX (`KernelConfigBackward_dX`, optional):
+            The kernel configuration for the backward pass of the input gradients in the grouped GEMM operations.
+        dW_only (`bool`, defaults to `False`):
+            Whether to compute only the weight gradients in the backward pass.
+        dX_only (`bool`, defaults to `False`):
+            Whether to compute only the input gradients in the backward pass.
+    """
     def __init__(
         self,
         config: Qwen3MoeConfig,
         gate: torch.Tensor,
         gate_up_proj: torch.Tensor,
         down_proj: torch.Tensor,
-        permute_x: bool = True,
-        permute_y: bool = True,
-        autotune: bool = True,
-        kernel_config_fwd: KernelConfigForward = None,
+        permute_x: bool                               = True,
+        permute_y: bool                               = True,
+        autotune: bool                                = True,
+        kernel_config_fwd: KernelConfigForward        = None,
         kernel_config_bwd_dW: KernelConfigBackward_dW = None,
         kernel_config_bwd_dX: KernelConfigBackward_dX = None,
-        dW_only: bool = False,
-        dX_only: bool = False,
+        dW_only: bool                                 = False,
+        dX_only: bool                                 = False,
     ):
         super().__init__(config, gate, gate_up_proj, down_proj)
         self.permute_x = permute_x
@@ -59,15 +93,41 @@ class Qwen3MoeFusedGroupedGEMMBlock(Qwen3MoeGroupedGEMMBlock):
     def from_hf(
         cls,
         moe_block: Qwen3MoeSparseMoeBlock,
-        permute_x: bool = True,
-        permute_y: bool = True,
-        autotune: bool = True,
-        kernel_config_fwd: KernelConfigForward = None,
+        permute_x: bool                               = True,
+        permute_y: bool                               = True,
+        autotune: bool                                = True,
+        kernel_config_fwd: KernelConfigForward        = None,
         kernel_config_bwd_dW: KernelConfigBackward_dW = None,
         kernel_config_bwd_dX: KernelConfigBackward_dX = None,
-        dW_only: bool = False,
-        dX_only: bool = False,
-    ):
+        dW_only: bool                                 = False,
+        dX_only: bool                                 = False,
+    ) -> Qwen3MoeFusedGroupedGEMMBlock:
+        """
+        Constructs a `Qwen3MoeFusedGroupedGEMMBlock` instance from a Hugging Face `Qwen3MoeSparseMoeBlock` instance.
+        
+        Args:
+            moe_block (`Qwen3MoeSparseMoeBlock`):
+                The Hugging Face MoE block to convert.
+            permute_x (`bool`, defaults to `True`):
+                Whether to permute the input tensor before the first grouped GEMM operation.
+            permute_y (`bool`, defaults to `True`):
+                Whether to permute the output tensor after the second grouped GEMM operation.
+            autotune (`bool`, defaults to `True`):
+                Whether to automatically tune the kernel configurations for the grouped GEMM operations.
+            kernel_config_fwd (`KernelConfigForward`, optional):
+                The kernel configuration for the forward pass of the grouped GEMM operations.
+            kernel_config_bwd_dW (`KernelConfigBackward_dW`, optional):
+                The kernel configuration for the backward pass of the weight gradients in the grouped GEMM operations.
+            kernel_config_bwd_dX (`KernelConfigBackward_dX`, optional):
+                The kernel configuration for the backward pass of the input gradients in the grouped GEMM operations.
+            dW_only (`bool`, defaults to `False`):
+                Whether to compute only the weight gradients in the backward pass.
+            dX_only (`bool`, defaults to `False`):
+                Whether to compute only the input gradients in the backward pass.
+        
+        Returns:
+            `Qwen3MoeFusedGroupedGEMMBlock`: The converted MoE block instance.
+        """
         config: Qwen3MoeConfig = moe_block.experts[0].config
         gate, gate_up_proj, down_proj = Qwen3MoeGroupedGEMMBlock.extract_hf_weights(
             moe_block
@@ -88,6 +148,17 @@ class Qwen3MoeFusedGroupedGEMMBlock(Qwen3MoeGroupedGEMMBlock):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """
+        Performs the forward pass of the MoE block.
+        
+        Args:
+            hidden_states (`torch.Tensor`):
+                The input tensor of shape (batch_size, sequence_length, hidden_dim).
+        
+        Returns:
+            `torch.Tensor`: The output tensor of shape (batch_size, sequence_length, hidden_dim).
+            `torch.Tensor`: The router logits tensor.
+        """
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         num_tokens = batch_size * sequence_length
         total_tokens = num_tokens * self.top_k

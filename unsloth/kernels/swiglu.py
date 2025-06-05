@@ -19,7 +19,7 @@ from .utils import calculate_settings, torch_cuda_device
 
 
 @triton.jit
-def _fg_kernel(e, g, h, n_elements, BLOCK_SIZE : tl.constexpr,):
+def _fg_kernel(e: torch.Tensor, g: torch.Tensor, h: torch.Tensor, n_elements: int, BLOCK_SIZE : tl.constexpr,) -> None:
     block_idx = tl.program_id(0)
     offsets = block_idx*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = offsets < n_elements
@@ -38,7 +38,7 @@ def _fg_kernel(e, g, h, n_elements, BLOCK_SIZE : tl.constexpr,):
 pass
 
 
-def swiglu_fg_kernel(e, g):
+def swiglu_fg_kernel(e: torch.Tensor, g: torch.Tensor) -> torch.Tensor:
     batch, seq_len, hd = e.shape
     n_elements = e.numel()
     h = torch.empty((batch, seq_len, hd), dtype = e.dtype, device = e.device)
@@ -50,7 +50,7 @@ pass
 
 
 @triton.jit
-def _DWf_DW_dfg_kernel(DW, e, g, n_elements, BLOCK_SIZE : tl.constexpr,):
+def _DWf_DW_dfg_kernel(DW: torch.Tensor, e: torch.Tensor, g: torch.Tensor, n_elements: int, BLOCK_SIZE : tl.constexpr,) -> None:
     """
     e = e.float()
     se = 1.0 / (1.0 + torch.exp(-e))
@@ -91,7 +91,7 @@ def _DWf_DW_dfg_kernel(DW, e, g, n_elements, BLOCK_SIZE : tl.constexpr,):
 pass
 
 
-def swiglu_DWf_DW_dfg_kernel(DW, e, g):
+def swiglu_DWf_DW_dfg_kernel(DW: torch.Tensor, e: torch.Tensor, g: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     batch_seq_len, hd = e.shape
     n_elements = e.numel()
     grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)

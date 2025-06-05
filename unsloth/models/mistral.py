@@ -1,3 +1,4 @@
+from typing import Optional, T, Type
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,16 +42,46 @@ from unsloth_zoo.utils import Version, _get_dtype
 def MistralAttention_fast_forward(
     self,
     hidden_states:       torch.Tensor,
-    causal_mask:         Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:      Optional[torch.Tensor] = None,
-    position_ids:        Optional[torch.LongTensor] = None,
-    past_key_value:      Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:   bool = False,
-    use_cache:           bool = False,
-    padding_mask:        Optional[torch.LongTensor] = None,
+    causal_mask:         Optional[BlockDiagonalCausalMask]           = None,
+    attention_mask:      Optional[torch.Tensor]                      = None,
+    position_ids:        Optional[torch.LongTensor]                  = None,
+    past_key_value:      Optional[Tuple[torch.Tensor]]               = None,
+    output_attentions:   bool                                        = False,
+    use_cache:           bool                                        = False,
+    padding_mask:        Optional[torch.LongTensor]                  = None,
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    """
+    Implements a fast forward pass for the Mistral attention mechanism.
+    
+    Args:
+        self: The attention layer instance.
+        hidden_states (`torch.Tensor`):
+            Input tensor of shape (batch_size, sequence_length, hidden_size).
+        causal_mask (`BlockDiagonalCausalMask`, optional):
+            Causal mask for attention computation.
+        attention_mask (`torch.Tensor`, optional):
+            Attention mask of shape (batch_size, sequence_length).
+        position_ids (`torch.LongTensor`, optional):
+            Position IDs of shape (batch_size, sequence_length).
+        past_key_value (`Tuple[torch.Tensor]`, optional):
+            Cached key and value tensors from previous steps.
+        output_attentions (`bool`):
+            Whether to output attention weights.
+        use_cache (`bool`):
+            Whether to cache key and value tensors for use in subsequent steps.
+        padding_mask (`torch.LongTensor`, optional):
+            Padding mask of shape (batch_size, sequence_length).
+        position_embeddings (`Tuple[torch.Tensor, torch.Tensor]`, optional):
+            Position embeddings for rotary position encoding.
+        *args, **kwargs: Additional arguments.
+    
+    Returns:
+        `Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]`:
+            Output tensor of shape (batch_size, sequence_length, hidden_size),
+            optional attention weights, and optional cached key and value tensors.
+    """
     
     # Clear inference
     if hasattr(self, "paged_attention"):
@@ -172,21 +203,59 @@ pass
 
 def MistralForCausalLM_fast_forward(
     self,
-    input_ids: torch.LongTensor = None,
-    causal_mask: Optional[BlockDiagonalCausalMask] = None,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
+    input_ids: torch.LongTensor                        = None,
+    causal_mask: Optional[BlockDiagonalCausalMask]     = None,
+    attention_mask: Optional[torch.Tensor]             = None,
+    position_ids: Optional[torch.LongTensor]           = None,
     past_key_values: Optional[List[torch.FloatTensor]] = None,
-    inputs_embeds: Optional[torch.FloatTensor] = None,
-    labels: Optional[torch.LongTensor] = None,
-    use_cache: Optional[bool] = None,
-    output_attentions: Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict: Optional[bool] = None,
-    num_logits_to_keep: Optional[int] = 0,
-    logits_to_keep: Optional[int] = 0,
+    inputs_embeds: Optional[torch.FloatTensor]         = None,
+    labels: Optional[torch.LongTensor]                 = None,
+    use_cache: Optional[bool]                          = None,
+    output_attentions: Optional[bool]                  = None,
+    output_hidden_states: Optional[bool]               = None,
+    return_dict: Optional[bool]                        = None,
+    num_logits_to_keep: Optional[int]                  = 0,
+    logits_to_keep: Optional[int]                      = 0,
     *args, **kwargs,
 ) -> Union[Tuple, CausalLMOutputWithPast]:
+    """
+    Implements a fast forward pass for the Mistral causal language model.
+    
+    Args:
+        self: The model instance.
+        input_ids (`torch.LongTensor`):
+            Input tensor of shape (batch_size, sequence_length) containing token indices.
+        causal_mask (`BlockDiagonalCausalMask`, optional):
+            Causal mask for attention computation.
+        attention_mask (`torch.Tensor`, optional):
+            Attention mask of shape (batch_size, sequence_length).
+        position_ids (`torch.LongTensor`, optional):
+            Position IDs of shape (batch_size, sequence_length).
+        past_key_values (`List[torch.FloatTensor]`, optional):
+            Cached key and value tensors from previous steps.
+        inputs_embeds (`torch.FloatTensor`, optional):
+            Embedded input tensor of shape (batch_size, sequence_length, hidden_size).
+        labels (`torch.LongTensor`, optional):
+            Labels tensor of shape (batch_size, sequence_length) for loss computation.
+        use_cache (`bool`, optional):
+            Whether to cache key and value tensors for use in subsequent steps.
+        output_attentions (`bool`, optional):
+            Whether to output attention weights.
+        output_hidden_states (`bool`, optional):
+            Whether to output hidden states.
+        return_dict (`bool`, optional):
+            Whether to return a dictionary of outputs.
+        num_logits_to_keep (`int`, optional):
+            Number of logits to keep for loss computation.
+        logits_to_keep (`int`, optional):
+            Number of logits to keep for output.
+        *args, **kwargs: Additional arguments.
+    
+    Returns:
+        `Union[Tuple, CausalLMOutputWithPast]`:
+            Output tensor of shape (batch_size, sequence_length, vocab_size) or
+            a dictionary containing loss, logits, past key values, hidden states, and attention weights.
+    """
 
     if causal_mask is None and past_key_values is None:
         bsz, q_len = input_ids.shape
@@ -328,7 +397,18 @@ pass
 
 
 # Transformers had to update for Mistral Nemo 12b since Attention is (5120, 4096) now.
-def patch_mistral_nemo_attention(function):
+def patch_mistral_nemo_attention(function: str) -> str:
+    """
+    Patches the Mistral Nemo attention function to accommodate changes in the attention mechanism.
+    
+    Args:
+        function (`str`):
+            The original function code as a string.
+    
+    Returns:
+        `str`:
+            The modified function code as a string with necessary patches applied.
+    """
     function = function.replace(
         "(self.head_dim * self.config.num_attention_heads) != self.config.hidden_size",
         "False",
@@ -346,9 +426,34 @@ pass
 
 
 class FastMistralModel(FastLlamaModel):
+    """
+    A fast implementation of the Mistral model optimized for performance.
+    
+    This class provides methods for patching the model and loading it from a pretrained configuration.
+    
+    Args:
+        None
+    
+    Methods:
+        pre_patch():
+            Applies patches to the model before initialization.
+        from_pretrained():
+            Loads a pretrained model from a specified configuration.
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies necessary patches to the Mistral model before initialization.
+        
+        This method modifies the attention and other components of the model to optimize performance.
+        
+        Args:
+            None
+        
+        Returns:
+            None
+        """
         init_name, function = patch_linear_scaling(
             model_name         = "mistral",
             rope_module        = LlamaRotaryEmbedding,
@@ -384,19 +489,51 @@ class FastMistralModel(FastLlamaModel):
 
     @staticmethod
     def from_pretrained(
-        model_name        = "unsloth/mistral-7b-bnb-4bit",
-        max_seq_length    = None,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None, # Mistral does not support RoPE scaling
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str                                 = "unsloth/mistral-7b-bnb-4bit",
+        max_seq_length: Optional[int]                   = None,
+        dtype: Optional[torch.dtype]                    = None,
+        load_in_4bit: bool                              = True,
+        token: Optional[str]                            = None,
+        device_map: str                                 = "sequential",
+        rope_scaling: Optional[dict]                    = None, # Mistral does not support RoPE scaling
+        fix_tokenizer: bool                             = True,
+        model_patcher: Optional[Type[FastMistralModel]] = None,
+        tokenizer_name: Optional[str]                   = None,
+        trust_remote_code: bool                         = False,
         **kwargs,
-    ):
+    ) -> FastMistralModel:
+        """
+        Loads a pretrained Mistral model from a specified configuration.
+        
+        Args:
+            model_name (`str`):
+                Name or path of the pretrained model.    
+            max_seq_length (`int`, optional):
+                Maximum sequence length for the model.
+            dtype (`torch.dtype`, optional):
+                Data type for the model weights.
+            load_in_4bit (`bool`):
+                Whether to load the model in 4-bit precision.
+            token (`str`, optional):
+                Authentication token for accessing private models.
+            device_map (`str`):
+                Device map for model loading.
+            rope_scaling (`dict`, optional):
+                Configuration for RoPE scaling.
+            fix_tokenizer (`bool`):
+                Whether to fix the tokenizer.
+            model_patcher (`Type[FastMistralModel]`, optional):
+                Model patcher class.
+            tokenizer_name (`str`, optional):
+                Name or path of the tokenizer.
+            trust_remote_code (`bool`):
+                Whether to trust remote code.
+            **kwargs: Additional keyword arguments.
+        
+        Returns:
+            `FastMistralModel`:
+                An instance of the pretrained FastMistralModel.
+        """
         return FastLlamaModel.from_pretrained(
             model_name        = model_name,
             max_seq_length    = max_seq_length,

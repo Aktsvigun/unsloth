@@ -1,3 +1,4 @@
+from typing import Any
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,15 +20,15 @@ from .utils import calculate_settings, torch_cuda_device
 ROPE_GROUP_SIZE : int = 4
 
 def _rope_embedding(
-    Q,     Q_row_stride,
-    cos, cos_row_stride,
-    sin, sin_row_stride,
-    seqlen,
+    Q: torch.Tensor,     Q_row_stride: int,
+    cos: torch.Tensor, cos_row_stride: int,
+    sin: torch.Tensor, sin_row_stride: int,
+    seqlen: int,
     head_dim      : tl.constexpr,
     n_heads       : tl.constexpr,
     BACKWARD_PASS : tl.constexpr,
     BLOCK_SIZE    : tl.constexpr,
-):
+) -> None:
     """
         Calculates the RoPE Embedding quickly
         RoPE is Q * cos + rotate_half(Q) * sin
@@ -76,8 +77,32 @@ _rope_embedding = triton.heuristics(
 
 
 class Fast_RoPE_Embedding(torch.autograd.Function):
+    """
+    Implements a fast version of the RoPE (Rotary Position Embedding) using Triton kernels for forward and backward passes.
+    
+    This class is a PyTorch autograd function that applies the RoPE transformation to the input tensor `Q` using
+    the provided `cos` and `sin` values.
+    
+    Attributes:
+        BLOCK_SIZE (int): The block size used in the Triton kernel for computation.    num_warps (int): The number of warps used in the Triton kernel.    n_groups (int): The number of groups the heads are divided into for processing.    cos (torch.Tensor): The cosine values for the RoPE.    sin (torch.Tensor): The sine values for the RoPE.
+    
+    Methods:
+        forward(ctx, Q, cos, sin):
+            Performs the forward pass of the RoPE embedding.
+        backward(ctx, dY):
+            Performs the backward pass of the RoPE embedding.
+    """
     @staticmethod
-    def forward(ctx, Q, cos, sin):
+    def forward(ctx, Q: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+        """
+        Performs the forward pass of the RoPE embedding.
+        
+        Args:
+            ctx (Any): Context object used to save information for the backward pass.    Q (torch.Tensor): The input tensor to apply RoPE to.    cos (torch.Tensor): The cosine values for the RoPE.    sin (torch.Tensor): The sine values for the RoPE.
+        
+        Returns:
+            The output tensor after applying the RoPE transformation.
+        """
         cos, sin = cos.squeeze(), sin.squeeze()
         batch    : int
         seq_len  : int
@@ -120,7 +145,16 @@ class Fast_RoPE_Embedding(torch.autograd.Function):
     pass
 
     @staticmethod
-    def backward(ctx, dY):
+    def backward(ctx, dY: torch.Tensor) -> tuple[torch.Tensor, None, None]:
+        """
+        Performs the backward pass of the RoPE embedding.
+        
+        Args:
+            ctx (Any): Context object containing saved information from the forward pass.    dY (torch.Tensor): The gradient of the output tensor.
+        
+        Returns:
+            The gradient of the input tensor after applying the RoPE transformation.
+        """
         batch    : int
         seq_len  : int
         n_heads  : int
@@ -152,7 +186,16 @@ pass
 
 # [TODO] Unsure why RoPE Embedding is not torch.compiling properly
 @torch.compiler.disable
-def fast_rope_embedding(Q, K, cos, sin):
+def fast_rope_embedding(Q: torch.Tensor, K: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Applies the fast RoPE embedding to the input tensors `Q` and `K` using the provided `cos` and `sin` values.
+    
+    Args:
+        Q (torch.Tensor): The input tensor to apply RoPE to.    K (torch.Tensor): The input tensor to apply RoPE to.    cos (torch.Tensor): The cosine values for the RoPE.    sin (torch.Tensor): The sine values for the RoPE.
+    
+    Returns:
+        A tuple containing the output tensors after applying the RoPE transformation to `Q` and `K`.
+    """
     Q = Fast_RoPE_Embedding.apply(Q.transpose(1, 2), cos, sin).transpose(1, 2)
     K = Fast_RoPE_Embedding.apply(K.transpose(1, 2), cos, sin).transpose(1, 2)
     return Q, K
@@ -160,8 +203,29 @@ pass
 
 
 class Slow_RoPE_Embedding(torch.autograd.Function):
+    """
+    Implements a slower version of the RoPE (Rotary Position Embedding) using standard PyTorch operations for forward and backward passes.
+    
+    This class is a PyTorch autograd function that applies the RoPE transformation to the input tensor `Q` using
+    the provided `cos`, `sin`, and `position_ids`.
+    
+    Methods:
+        forward(ctx, Q, cos, sin, position_ids):
+            Performs the forward pass of the RoPE embedding.
+        backward(ctx, dY):
+            Performs the backward pass of the RoPE embedding.
+    """
     @staticmethod
-    def forward(ctx, Q, cos, sin, position_ids):
+    def forward(ctx, Q: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Performs the forward pass of the RoPE embedding.
+        
+        Args:
+            ctx (Any): Context object used to save information for the backward pass.    Q (torch.Tensor): The input tensor to apply RoPE to.    cos (torch.Tensor): The cosine values for the RoPE.    sin (torch.Tensor): The sine values for the RoPE.    position_ids (torch.Tensor): The position IDs to use for the RoPE.
+        
+        Returns:
+            The output tensor after applying the RoPE transformation.
+        """
         if position_ids is not None:
             # The first two dimensions of cos and sin are always 1, so we can `squeeze` them.
             cos = cos.squeeze(1).squeeze(0)  # [seq_len, dim]
@@ -181,7 +245,16 @@ class Slow_RoPE_Embedding(torch.autograd.Function):
     pass
 
     @staticmethod
-    def backward(ctx, dY):
+    def backward(ctx, dY: torch.Tensor) -> tuple[torch.Tensor, None, None, None]:
+        """
+        Performs the backward pass of the RoPE embedding.
+        
+        Args:
+            ctx (Any): Context object containing saved information from the forward pass.    dY (torch.Tensor): The gradient of the output tensor.
+        
+        Returns:
+            The gradient of the input tensor after applying the RoPE transformation.
+        """
         cos, sin = ctx.saved_tensors
         # Q * cos + rotate_half.T(Q) * sin
         half = dY.shape[-1]//2
@@ -195,7 +268,16 @@ class Slow_RoPE_Embedding(torch.autograd.Function):
 pass
 
 
-def inplace_rope_embedding(Q, K, cos, sin, position_ids):
+def inplace_rope_embedding(Q: torch.Tensor, K: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Applies the slow RoPE embedding to the input tensors `Q` and `K` using the provided `cos`, `sin`, and `position_ids`.
+    
+    Args:
+        Q (torch.Tensor): The input tensor to apply RoPE to.    K (torch.Tensor): The input tensor to apply RoPE to.    cos (torch.Tensor): The cosine values for the RoPE.    sin (torch.Tensor): The sine values for the RoPE.    position_ids (torch.Tensor): The position IDs to use for the RoPE.
+    
+    Returns:
+        A tuple containing the output tensors after applying the RoPE transformation to `Q` and `K`.
+    """
     Q = Slow_RoPE_Embedding.apply(Q, cos, sin, position_ids)
     K = Slow_RoPE_Embedding.apply(K, cos, sin, position_ids)
     return Q, K

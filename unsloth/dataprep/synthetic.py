@@ -1,3 +1,6 @@
+from typing import Optional
+
+
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,14 +38,44 @@ from .synthetic_configs import (
 )
 
 class SyntheticDataKit:
+    """
+    A class for generating synthetic data using a language model via the vLLM API.
+    
+    This class handles the initialization, configuration, and cleanup of a vLLM server process for
+    synthetic data generation. It provides methods for preparing QA generation, chunking data, and
+    managing the lifecycle of the vLLM server.
+    
+    Args:
+        model_name (`str`):
+            Name or path of the pre-trained model to use for data generation.
+        max_seq_length (`int`):
+            Maximum sequence length for the model.
+        gpu_memory_utilization (`float`):
+            Fraction of GPU memory to allocate for the model.
+        float8_kv_cache (`bool`):
+            Whether to use float8 precision for the key-value cache.
+        conservativeness (`float`):
+            Conservativeness factor for generation.
+        token (`Optional[str]`):
+            Authentication token for model access.
+        **kwargs: Additional keyword arguments for model loading.
+    
+    Attributes:
+        vllm_process (`subprocess.Popen`):
+            The subprocess running the vLLM server.
+        overlap (`int`):
+            Overlap between data chunks for generation.
+        max_generation_tokens (`int`):
+            Maximum number of tokens to generate per chunk.
+    """
     def __init__(
         self,
-        model_name = "unsloth/Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
-        max_seq_length = 2048,
-        gpu_memory_utilization = 0.98,
-        float8_kv_cache = False,
-        conservativeness = 1.0,
-        token = None,
+        model_name: str               = "unsloth/Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
+        max_seq_length: int           = 2048,
+        gpu_memory_utilization: float = 0.98,
+        float8_kv_cache: bool         = False,
+        conservativeness: float       = 1.0,
+        token: Optional[str]          = None,
         **kwargs,
     ):
         assert(type(model_name) is str)
@@ -137,14 +170,35 @@ class SyntheticDataKit:
 
     @staticmethod
     def from_pretrained(
-        model_name = "unsloth/Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
-        max_seq_length = 2048,
-        gpu_memory_utilization = 0.9,
-        float8_kv_cache = False,
-        conservativeness = 1.0,
-        token = None,
+        model_name: str               = "unsloth/Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
+        max_seq_length: int           = 2048,
+        gpu_memory_utilization: float = 0.9,
+        float8_kv_cache: bool         = False,
+        conservativeness: float       = 1.0,
+        token: Optional[str]          = None,
         **kwargs,
-    ):
+    ) -> SyntheticDataKit:
+        """
+        Creates an instance of `SyntheticDataKit` by loading a pre-trained model.
+        
+        Args:
+            model_name (`str`):
+                Name or path of the pre-trained model.
+            max_seq_length (`int`):
+                Maximum sequence length for the model.
+            gpu_memory_utilization (`float`):
+                Fraction of GPU memory to allocate for the model.
+            float8_kv_cache (`bool`):
+                Whether to use float8 precision for the key-value cache.
+            conservativeness (`float`):
+                Conservativeness factor for generation.
+            token (`Optional[str]`):
+                Authentication token for model access.
+            **kwargs: Additional keyword arguments for model loading.
+        
+        Returns:
+            `SyntheticDataKit`: An instance of the class with the specified model and configuration.
+        """
         return SyntheticDataKit(
             model_name = model_name,
             max_seq_length = max_seq_length,
@@ -157,7 +211,15 @@ class SyntheticDataKit:
     pass
 
     @staticmethod
-    def check_vllm_status():
+    def check_vllm_status() -> bool:
+        """
+        Checks if the vLLM server is running and accessible.
+        
+        This method sends a request to the vLLM server's metrics endpoint to determine its status.
+        
+        Returns:
+            `bool`: `True` if the server is running and responsive, `False` otherwise.
+        """
         try:
             response = requests.get("http://localhost:8000/metrics")
             if response.status_code == 200:
@@ -167,7 +229,16 @@ class SyntheticDataKit:
         pass
     pass
 
-    def cleanup(self):
+    def cleanup(self) -> None:
+        """
+        Gracefully terminates the vLLM server process and performs cleanup.
+        
+        This method ensures that the vLLM server is stopped, GPU memory is freed, and any
+        associated resources are released.
+        
+        Returns:
+            `None`
+        """
         if not hasattr(self, "vllm_process"): return
 
         vllm_process = self.vllm_process
@@ -199,11 +270,57 @@ class SyntheticDataKit:
         delete_vllm(llm = None)
     pass
 
-    def __enter__(self): return self
-    def __exit__(self, *exc): self.cleanup()
-    def __del__(self): self.cleanup()
+    def __enter__(self) -> SyntheticDataKit:
+        """
+        Enters the runtime context related to the `SyntheticDataKit` instance.
+        
+        This method is part of the context manager protocol and returns the instance itself.
+        
+        Returns:
+            `SyntheticDataKit`: The instance of the class.
+        """
+        return self
+    def __exit__(self, *exc) -> None:
+        """
+        Exits the runtime context and performs cleanup.
+        
+        This method is part of the context manager protocol and ensures that the vLLM server
+        is terminated and resources are released when exiting the context.
+        
+        Args:
+            *exc: Exception type, value, and traceback information (if an exception occurred).
+        
+        Returns:
+            `None`
+        """
+        self.cleanup()
+    def __del__(self) -> None:
+        """
+        Destructor for the `SyntheticDataKit` class.
+        
+        This method ensures that the vLLM server is terminated and resources are released
+        when the instance is deleted.
+        
+        Returns:
+            `None`
+        """
+        self.cleanup()
 
-    def chunk_data(self, filename = None):
+    def chunk_data(self, filename: str = None) -> list[str]:
+        """
+        Splits a text file into chunks based on token limits for generation.
+        
+        Args:
+            filename (`str`):
+                Path to the input text file to be chunked.
+        
+        Returns:
+            `list[str]`: A list of filenames corresponding to the chunked text files.
+        
+        Raises:
+            `AssertionError`: If the input file does not exist or required attributes are missing.
+            `RuntimeError`: If the generation length is too long or chunking fails.
+        """
         # Chunks data by max tokens and generation length
         assert(filename is not None)
         assert(os.path.exists(filename))
@@ -243,16 +360,48 @@ class SyntheticDataKit:
 
     def prepare_qa_generation(
         self,
-        output_folder = "data",
-        max_generation_tokens = 512,
-        temperature = 0.7,
-        top_p = 0.95,
-        overlap = 64,
-        default_num_pairs = 25,
-        cleanup_threshold = 1.0,
-        cleanup_batch_size = 4,
-        cleanup_temperature = 0.3,
-    ):
+        output_folder: str         = "data",
+        max_generation_tokens: int = 512,
+        temperature: float         = 0.7,
+        top_p: float               = 0.95,
+        overlap: int               = 64,
+        default_num_pairs: int = 25,
+        cleanup_threshold: float   = 1.0,
+        cleanup_batch_size: int    = 4,
+        cleanup_temperature: float = 0.3,
+    ) -> None:
+        """
+        Prepares the configuration for QA generation using the synthetic data pipeline.
+        
+        This method sets up the necessary directories and configuration file for the synthetic
+        data generation process, including parameters for model generation, overlap, and cleanup.
+        
+        Args:
+            output_folder (`str`):
+                Directory where generated data will be saved.
+            max_generation_tokens (`int`):
+                Maximum number of tokens to generate per chunk.
+            temperature (`float`):
+                Sampling temperature for generation.
+            top_p (`float`):
+                Top-p (nucleus) sampling probability.
+            overlap (`int`):
+                Overlap between consecutive data chunks.    
+            default_num_pairs (`int`):
+                Default number of QA pairs to generate.
+            cleanup_threshold (`float`):
+                Threshold for cleanup operations.
+            cleanup_batch_size (`int`):
+                Batch size for cleanup processing.
+            cleanup_temperature (`float`):
+                Sampling temperature for cleanup.
+        
+        Returns:
+            `None`
+        
+        Raises:
+            `AssertionError`: If required attributes are missing or constraints are violated.
+        """
         assert(hasattr(self, "model_name"))
         assert(hasattr(self, "max_seq_length"))
         assert(max_generation_tokens < self.max_seq_length)

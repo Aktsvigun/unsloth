@@ -1,3 +1,4 @@
+from typing import Type, Optional, T, Any
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,9 +37,27 @@ pass
 
 
 class FastQwen2Model(FastLlamaModel):
+    """
+    A class for the FastQwen2 model, which is a modified version of the Qwen2 model optimized for performance.
+    
+    This class provides methods to patch the model for improved efficiency and to load the model from a pretrained state.
+    
+    Methods:
+        `pre_patch()`: Applies patches to the model components to optimize performance.
+        `from_pretrained()`: Loads a pretrained FastQwen2 model with specified configurations.
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies necessary patches to the Qwen2 model components to optimize performance.
+        
+        This method modifies the forward functions of attention and decoder layers to use fast implementations.
+        It also patches the rotary embeddings and prepares the model for efficient inference and training.
+        
+        Returns:
+            None
+        """
         init_name, function = patch_linear_scaling(
             model_name         = "qwen2",
             rope_module        = LlamaRotaryEmbedding,
@@ -71,19 +90,49 @@ class FastQwen2Model(FastLlamaModel):
 
     @staticmethod
     def from_pretrained(
-        model_name        = "Qwen/Qwen2-7B",
-        max_seq_length    = 4096,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None, # Qwen2 does not support RoPE scaling
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str                               = "Qwen/Qwen2-7B",
+        max_seq_length: int                           = 4096,
+        dtype: Optional[torch.dtype]                  = None,
+        load_in_4bit: bool                            = True,
+        token: Optional[str]                          = None,
+        device_map: str | dict                        = "sequential",
+        rope_scaling: Optional[Any]                   = None, # Qwen2 does not support RoPE scaling
+        fix_tokenizer: bool                           = True,
+        model_patcher: Optional[Type[FastQwen2Model]] = None,
+        tokenizer_name: Optional[str]                 = None,
+        trust_remote_code: bool                       = False,
         **kwargs,
-    ):
+    ) -> FastQwen2Model:
+        """
+        Loads a pretrained FastQwen2 model with specified configurations.
+        
+        Args:
+            model_name (`str`, defaults to "Qwen/Qwen2-7B"):
+                Name of the pretrained model to load.
+            max_seq_length (`int`, defaults to 4096):
+                Maximum sequence length for the model.
+            dtype (`torch.dtype`, optional):
+                Data type for the model weights.
+            load_in_4bit (`bool`, defaults to True):
+                Whether to load the model in 4-bit precision.
+            token (`str`, optional):
+                Authentication token for accessing private models.
+            device_map (`str` or `dict`, defaults to "sequential"):
+                Device map for distributing the model across devices.
+            rope_scaling (`Any`, optional):
+                RoPE scaling configuration (Qwen2 does not support RoPE scaling).
+            fix_tokenizer (`bool`, defaults to True):
+                Whether to fix the tokenizer.
+            model_patcher (`Type[FastQwen2Model]`, optional):
+                Model patcher class to use.
+            tokenizer_name (`str`, optional):
+                Name of the tokenizer to use.
+            trust_remote_code (`bool`, defaults to False):
+                Whether to trust remote code when loading the model.
+        
+        Returns:
+            `FastQwen2Model`: The loaded and configured FastQwen2 model.
+        """
         return FastLlamaModel.from_pretrained(
             model_name        = model_name,
             max_seq_length    = max_seq_length,

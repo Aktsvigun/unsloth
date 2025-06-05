@@ -68,7 +68,7 @@ __all__ = [
 ]
 
 import torch
-from typing import Union, Optional, List, Any, Callable, Tuple
+from typing import Union, Optional, List, Any, Callable, Tuple, NoReturn
 from platform import system as platform_system
 platform_system = platform_system()
 import numpy as np
@@ -142,9 +142,31 @@ logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.CRITI
 
 # Ignore logging messages
 class HideLoggingMessage(logging.Filter):
+    """
+    Class to filter out specific logging messages by filtering the message text.
+    
+    Args:
+        text (`str`):
+            The text to filter in log messages.
+    
+    Methods:
+        filter(x: logging.LogRecord) -> bool: Returns True if the message does not contain the specified text.
+    """
     __slots__ = "text",
-    def __init__(self, text): self.text = text
-    def filter(self, x): return not (self.text in x.getMessage())
+
+    def __init__(self, text: str): self.text = text
+    def filter(self, x: logging.LogRecord) -> bool:
+        """
+        Filters log records to hide messages containing the specified text.
+        
+        Args:
+            x (`logging.LogRecord`):
+                The log record to filter.
+        
+        Returns:
+            `bool`: True if the message does not contain the specified text, False otherwise.
+        """
+        return not (self.text in x.getMessage())
 pass
 
 # The speedups for torchdynamo mostly come with GPU Ampere or higher and which is not detected here.
@@ -202,7 +224,7 @@ except:
 # Patch get_model_param_count to record correct 4bit / 8bit
 from transformers.trainer_pt_utils import is_deepspeed_zero3_enabled
 
-def extract_approx_params_from_config(config):
+def extract_approx_params_from_config(config: PretrainedConfig) -> Optional[int]:
     """
     Extract approximate parameter count from model config's name_or_path
     Returns int (param count) or None if not found.
@@ -230,7 +252,7 @@ def extract_approx_params_from_config(config):
     return None
 
 
-def get_model_param_count(model, trainable_only = False):
+def get_model_param_count(model: torch.nn.Module, trainable_only: bool = False) -> int:
     """
     Calculate model's total param count. If trainable_only is True then count only those requiring grads
     """
@@ -259,7 +281,17 @@ transformers.trainer.get_model_param_count = get_model_param_count
 # Edits all Config files to enable RoPE Scaling for all models
 
 # Transformers had to update for Mistral Nemo 12b since Attention is (5120, 4096) now.
-def patch_mistral_nemo_config(config):
+def patch_mistral_nemo_config(config: str) -> str:
+    """
+    Modifies the configuration string to include head_dim parameter for Mistral Nemo models.
+    
+    Args:
+        config (`str`):
+            The original configuration string.
+    
+    Returns:
+        `str`: The modified configuration string with head_dim added.
+    """
     if "head_dim (" not in config:
         add_head_dim = "If it is not specified, will default to `8`.\n"\
             "        head_dim (`int`, *optional*, defaults to `hidden_size // num_attention_heads`):\n"\
@@ -535,7 +567,17 @@ UNSLOTH_COMPILE_IGNORE_ERRORS = os.environ.get("UNSLOTH_COMPILE_IGNORE_ERRORS", 
 # Just remove max_autotune_gemm warning
 import functools
 @functools.lru_cache(None)
-def is_big_gpu(index):
+def is_big_gpu(index: int) -> bool:
+    """
+    Checks if the GPU has a sufficient number of SMs (Streaming Multiprocessors) to use max_autotune_gemm mode.
+    
+    Args:
+        index (`int`):
+            The index of the GPU to check.
+    
+    Returns:
+        `bool`: True if the GPU has 80 or more SMs, False otherwise.
+    """
     sms = torch.cuda.get_device_properties(index).multi_processor_count
     if sms < 80:  # V100
         # log.warning("not enough SMs to use max_autotune_gemm mode")
@@ -558,7 +600,13 @@ torch_compile_options = {
 }
 
 import accelerate
-def torch_compile_kwargs(*args, **kwargs):
+def torch_compile_kwargs(*args, **kwargs) -> dict[str, Union[bool, dict[str, Union[bool, int, str]]]]:
+    """
+    Returns the keyword arguments for torch compile options.
+    
+    Returns:
+        `dict`: A dictionary containing the compile options.
+    """
     print("Unsloth: Enabled auto compiling")
     return {"dynamic" : True, "fullgraph" : False, "options" : torch_compile_options,}
 pass
@@ -568,7 +616,15 @@ accelerate.utils.TorchDynamoPlugin.to_kwargs             = torch_compile_kwargs
 accelerate.accelerator.TorchDynamoPlugin.to_kwargs       = torch_compile_kwargs
 del accelerate
 
-def patch_regional_compilation():
+def patch_regional_compilation() -> None:
+    """
+    Patches the torch.nn.ModuleList to enable regional compilation for torch 2.5 and above.
+    
+    This function replaces the torch.nn.ModuleList with a custom version that compiles each module in the list using torch.compile.
+    
+    Returns:
+        None
+    """
     # Regional torch 2.5 Recompilation - weirdly very slow??
     if torch.nn.ModuleList.__name__ == "UnslothModuleList": return
     # Only works for torch 2.5
@@ -592,9 +648,23 @@ pass
 
 def prepare_model_for_kbit_training(
     model                      : Any,
-    use_gradient_checkpointing : Optional = True,
+    use_gradient_checkpointing : Optional       = True,
     use_reentrant              : Optional[bool] = True,
 ) -> Any:
+    """
+    Prepares a model for k-bit training by configuring it with the specified training parameters.
+    
+    Args:
+        model (`Any`):
+            The model to prepare for training.
+        use_gradient_checkpointing (`bool`, optional):
+            Whether to use gradient checkpointing.
+        use_reentrant (`bool`, optional):
+            Whether to use reentrant mode for gradient checkpointing.
+    
+    Returns:
+        `Any`: The prepared model for k-bit training.
+    """
     return prepare_model_for_training(
         model                      = model,
         use_gradient_checkpointing = use_gradient_checkpointing,
@@ -643,7 +713,18 @@ pass
 # =============================================
 
 import psutil
-def _get_statistics(statistics = None, force_download = True):
+def _get_statistics(statistics: Optional[str] = None, force_download: bool = True) -> None:
+    """
+    Gathers statistics about the current environment and downloads a model from Hugging Face based on the detected environment.
+    
+    Args:
+        statistics (`str`, optional):
+            The type of statistics to gather.    force_download (`bool`, optional):
+            Whether to force download the model even if it's already present.
+    
+    Returns:
+        None
+    """
     # We log some basic stats about which environment is being used.
     # We simply download a README.md file from HF - all data is made public.
     # This is simply so we can check if some envs are broken or not.
@@ -696,7 +777,15 @@ def _get_statistics(statistics = None, force_download = True):
 pass
 
 
-def get_statistics():
+def get_statistics() -> None:
+    """
+    Logs basic statistics about the environment being used and downloads models from Hugging Face for analysis.
+    
+    This function disables progress bars, gathers statistics about the environment, and downloads models for different environments.
+    
+    Returns:
+        None
+    """
     # We log some basic stats about which environment is being used.
     # We simply download a README.md file from HF - all data is made public.
     # This is simply so we can check if some envs are broken or not.
@@ -782,7 +871,20 @@ transformers.utils.quantization_config.BitsAndBytesConfig.__init__ = _BitsAndByt
 # Offloading to disk for modules (lm_head, embed_tokens)
 import pickle
 
-def offload_to_disk(W, model, name, temporary_location : str = "_unsloth_temporary_saved_buffers"):
+def offload_to_disk(W: Union[torch.nn.Module, torch.Tensor], model: torch.nn.Module, name: str, temporary_location : str = "_unsloth_temporary_saved_buffers") -> torch.Tensor:
+    """
+    Offloads a model or tensor to disk by saving it to a file and then loading it back as an offloaded tensor.
+    
+    Args:
+        W (`Union[torch.nn.Module, torch.Tensor]`):
+            The model or tensor to offload.    model (`torch.nn.Module`):
+            The model to which the offloaded tensor belongs.    name (`str`):
+            The name of the offloaded tensor.    temporary_location (`str`, optional):
+            The directory where the tensor will be saved.
+    
+    Returns:
+        `torch.Tensor`: The offloaded tensor loaded from disk.
+    """
     file_location = os.path.join(temporary_location, model.config._name_or_path)
     if not os.path.exists(file_location):
         os.makedirs(file_location)
@@ -798,7 +900,18 @@ def offload_to_disk(W, model, name, temporary_location : str = "_unsloth_tempora
 pass
 
 
-def offload_input_embeddings(model, temporary_location : str = "_unsloth_temporary_saved_buffers"):
+def offload_input_embeddings(model: torch.nn.Module, temporary_location : str = "_unsloth_temporary_saved_buffers") -> None:
+    """
+    Offloads the input embeddings of a model to disk.
+    
+    Args:
+        model (`torch.nn.Module`):
+            The model whose input embeddings will be offloaded.    temporary_location (`str`, optional):
+            The directory where the input embeddings will be saved.
+    
+    Returns:
+        None
+    """
     offloaded_W = offload_to_disk(model.get_input_embeddings(), model, "input_embeddings", temporary_location)
     new_input_embeddings = torch.nn.Embedding.from_pretrained(offloaded_W)
     new_input_embeddings._offloaded_file_location = offloaded_W._offloaded_file_location
@@ -807,7 +920,18 @@ def offload_input_embeddings(model, temporary_location : str = "_unsloth_tempora
 pass
 
 
-def offload_output_embeddings(model, temporary_location : str = "_unsloth_temporary_saved_buffers"):
+def offload_output_embeddings(model: torch.nn.Module, temporary_location : str = "_unsloth_temporary_saved_buffers") -> None:
+    """
+    Offloads the output embeddings of a model to disk.
+    
+    Args:
+        model (`torch.nn.Module`):
+            The model whose output embeddings will be offloaded.    temporary_location (`str`, optional):
+            The directory where the output embeddings will be saved.
+    
+    Returns:
+        None
+    """
     offloaded_W = offload_to_disk(model.get_output_embeddings(), model, "output_embeddings", temporary_location)
 
     new_output_embeddings = torch.nn.Linear(1, 1, bias = None)
@@ -823,21 +947,46 @@ pass
 
 
 # Fixes a weird Torch 2.3 bug which says T4s have bfloat16
-def is_bfloat16_supported():
+def is_bfloat16_supported() -> bool:
+    """
+    Checks if bfloat16 is supported by the current GPU.
+    
+    Returns:
+        `bool`: True if bfloat16 is supported, False otherwise.
+    """
     return SUPPORTS_BFLOAT16
 pass
 
-def is_vLLM_available():
+def is_vLLM_available() -> bool:
+    """
+    Checks if the vLLM library is available.
+    
+    Returns:
+        `bool`: True if vLLM is available, False otherwise.
+    """
     return _is_package_available("vllm")
 pass
 
 # Patches models to add RoPE Scaling
 def patch_linear_scaling(
-    model_name = "gemma2",
-    rope_module = None,
-    scaled_rope_module = None,
-    attention_module = None,
-):
+    model_name: str                   = "gemma2",
+    rope_module: Optional[Any]        = None,
+    scaled_rope_module: Optional[Any] = None,
+    attention_module: Optional[Any]   = None,
+) -> tuple[Optional[str], str]:
+    """
+    Patches a model to add linear RoPE scaling functionality.
+    
+    Args:
+        model_name (`str`):
+            The name of the model to patch.    rope_module (`Any`):
+            The original RoPE module.    scaled_rope_module (`Any`):
+            The scaled RoPE module.    attention_module (`Any`):
+            The attention module.
+    
+    Returns:
+        `tuple[Optional[str], str]`: A tuple containing the name of the original attention initialization method and the patched function code.
+    """
     assert(rope_module is not None and scaled_rope_module is not None)
     assert(attention_module is not None)
 
@@ -905,13 +1054,28 @@ pass
 
 # Patches for Llama-3 LlamaExtendedRotaryEmbedding
 def patch_llama_rope_scaling(
-    model_name = "llama",
-    rope_module = None,
-    scaled_rope_module = None,
-    extended_rope_module = None,
-    attention_module = None,
-    longrope_module = None,
-):
+    model_name: str                     = "llama",
+    rope_module: Optional[Any]          = None,
+    scaled_rope_module: Optional[Any]   = None,
+    extended_rope_module: Optional[Any] = None,
+    attention_module: Optional[Any]     = None,
+    longrope_module: Optional[Any]      = None,
+) -> tuple[Optional[str], str]:
+    """
+    Patches the Llama model to add RoPE scaling functionality.
+    
+    Args:
+        model_name (`str`):
+            The name of the model to patch.    rope_module (`Any`):
+            The original RoPE module.    scaled_rope_module (`Any`):
+            The scaled RoPE module.    extended_rope_module (`Any`):
+            The extended RoPE module.    attention_module (`Any`):
+            The attention module.    longrope_module (`Any`, optional):
+            The long RoPE module.
+    
+    Returns:
+        `tuple[Optional[str], str]`: A tuple containing the name of the original attention initialization method and the patched function code.
+    """
     assert(\
         rope_module is not None and \
         scaled_rope_module is not None and \
@@ -1001,7 +1165,18 @@ def patch_llama_rope_scaling(
 pass
 
 
-def create_boolean_mask(n = 4096, sliding_window = 2048):
+def create_boolean_mask(n: int = 4096, sliding_window: int = 2048) -> torch.Tensor:
+    """
+    Creates a boolean mask for attention with a sliding window.
+    
+    Args:
+        n (`int`, optional):
+            The size of the attention matrix.    sliding_window (`int`, optional):
+            The size of the sliding window for attention.
+    
+    Returns:
+        `torch.Tensor`: A boolean mask tensor where True indicates positions that should be attended to.
+    """
     # Creates a boolean mask for attention
     mask = torch.ones(n, n, dtype = torch.bool)
     if sliding_window == 0:
@@ -1015,7 +1190,19 @@ def create_boolean_mask(n = 4096, sliding_window = 2048):
 pass
 
 
-def test_mask_creation():
+def test_mask_creation() -> None:
+    """
+    Tests the correctness of the boolean mask creation function by comparing it with the expected output from AttentionMaskConverter.
+    
+    Args:
+        None
+    
+    Returns:
+        None
+    
+    Raises:
+        `AssertionError`: If the generated mask does not match the expected mask for any test case.
+    """
     from transformers.modeling_attn_mask_utils import AttentionMaskConverter
     for n in range(2, 23):
         for s in range(1, 23):
@@ -1038,7 +1225,17 @@ def test_mask_creation():
 pass
 
 
-def _unsloth_pre_compute_loss(self, model, inputs, *args, **kwargs):
+def _unsloth_pre_compute_loss(self, model, inputs: dict[str, Any], *args, **kwargs):
+    """
+    Modifies the compute loss function to handle gradient accumulation steps correctly.
+    
+    Args:
+        self: The trainer instance.    model: The model being trained.    inputs (`dict[str, Any]`):
+            The input data for the model.    *args: Additional positional arguments.    **kwargs: Additional keyword arguments.
+    
+    Returns:
+        `Any`: The computed loss from the model.
+    """
     num_items_in_batch = None
 
     if "num_items_in_batch" in kwargs:
@@ -1071,7 +1268,16 @@ def _unsloth_pre_compute_loss(self, model, inputs, *args, **kwargs):
 pass
 
 
-def patch_gradient_accumulation_fix(Trainer):
+def patch_gradient_accumulation_fix(Trainer) -> None:
+    """
+    Patches the training step function to handle gradient accumulation correctly.
+    
+    Args:
+        Trainer: The trainer class to patch.
+    
+    Returns:
+        None
+    """
     # Fixes gradient accumulation 
     import inspect
     if hasattr(Trainer, "get_batch_samples"):
@@ -1155,7 +1361,16 @@ def patch_gradient_accumulation_fix(Trainer):
 pass
 
 
-def patch_tokenizer(model, tokenizer):
+def patch_tokenizer(model, tokenizer) -> tuple[Any, Any]:
+    """
+    Patches the tokenizer and updates the model configuration with the current Unsloth version.
+    
+    Args:
+        model: The model to patch.    tokenizer: The tokenizer to patch.
+    
+    Returns:
+        `tuple[Any, Any]`: The patched model and tokenizer.
+    """
     model, tokenizer = _patch_tokenizer(model, tokenizer)
     if model is not None:
         model.config.update({"unsloth_version" : __version__})
@@ -1163,45 +1378,91 @@ def patch_tokenizer(model, tokenizer):
 pass
 
 
-def patch_fast_lora():
+def patch_fast_lora() -> None:
+    """
+    Patches the LoRA (Low-Rank Adaptation) forward function to enable faster computation.
+    
+    Returns:
+        None
+    """
     import peft.tuners.lora.bnb
     peft.tuners.lora.bnb.Linear4bit.forward = fast_lora_forward
 pass
 
 
 def unsloth_compile_transformers(
-    dtype,
-    model_name,
-    model_types,
-    token                   = None,
-    revision                = None,
-    trust_remote_code       = False,
-    sdpa_dynamic_mask       = True,
-    sdpa_bool_masks         = True,
-    sdpa_gqa_replace        = True,
-    sdpa_dynamic_compile    = True,
-    compile_attention       = True,
-    disable_causal_masks    = True,
-    compile_torch_modules   = True,
-    compile_custom_modules  = True,
-    compile_function_calls  = True,
-    fuse_lm_head            = True,
-    gradient_checkpointing  = True,
-    manual_replacements     = True,
-    fast_lora_forwards      = True,
-    fast_residual_stream    = True,
-    accurate_accumulation   = True,
-    epilogue_fusion         = True,
-    max_autotune            = False,
-    shape_padding           = True,
-    cudagraphs              = False,
-    debug                   = False,
-    fullgraph               = True,
-    import_from_cache       = False,
-    disable                 = False,
-    return_logits           = False,
-    unsloth_force_compile   = False,
-):
+    dtype: torch.dtype,
+    model_name: str,
+    model_types: list[str],
+    token: Optional[str]         = None,
+    revision: Optional[str]      = None,
+    trust_remote_code: bool      = False,
+    sdpa_dynamic_mask: bool      = True,
+    sdpa_bool_masks: bool        = True,
+    sdpa_gqa_replace: bool       = True,
+    sdpa_dynamic_compile: bool   = True,
+    compile_attention: bool      = True,
+    disable_causal_masks: bool   = True,
+    compile_torch_modules: bool  = True,
+    compile_custom_modules: bool = True,
+    compile_function_calls: bool = True,
+    fuse_lm_head: bool           = True,
+    gradient_checkpointing: bool = True,
+    manual_replacements: bool    = True,
+    fast_lora_forwards: bool     = True,
+    fast_residual_stream: bool   = True,
+    accurate_accumulation: bool  = True,
+    epilogue_fusion: bool        = True,
+    max_autotune: bool           = False,
+    shape_padding: bool          = True,
+    cudagraphs: bool             = False,
+    debug: bool                  = False,
+    fullgraph: bool              = True,
+    import_from_cache: bool      = False,
+    disable: bool                = False,
+    return_logits: bool          = False,
+    unsloth_force_compile: bool  = False,
+) -> tuple[list[str], bool]:
+    """
+    Compiles the Transformers library models with optimized settings for faster execution.
+    
+    Args:
+        dtype (`torch.dtype`):
+            The data type for the compiled model.    model_name (`str`):
+            The name of the model to compile.    model_types (`list[str]`):
+            The types of models to compile.    token (`str`, optional):
+            The token for authentication.    revision (`str`, optional):
+            The revision of the model to use.    trust_remote_code (`bool`):
+            Whether to trust remote code.    sdpa_dynamic_mask (`bool`):
+            Whether to use dynamic mask for SDPA.    sdpa_bool_masks (`bool`):
+            Whether to use boolean masks for SDPA.    sdpa_gqa_replace (`bool`):
+            Whether to replace GQA with SDPA.    sdpa_dynamic_compile (`bool`):
+            Whether to dynamically compile SDPA.    compile_attention (`bool`):
+            Whether to compile attention layers.    disable_causal_masks (`bool`):
+            Whether to disable causal masks.    compile_torch_modules (`bool`):
+            Whether to compile torch modules.    compile_custom_modules (`bool`):
+            Whether to compile custom modules.    compile_function_calls (`bool`):
+            Whether to compile function calls.    fuse_lm_head (`bool`):
+            Whether to fuse the language model head.    gradient_checkpointing (`bool`):
+            Whether to use gradient checkpointing.    manual_replacements (`bool`):
+            Whether to perform manual replacements.    fast_lora_forwards (`bool`):
+            Whether to use fast LoRA forwards.    fast_residual_stream (`bool`):
+            Whether to use fast residual stream.    accurate_accumulation (`bool`):
+            Whether to use accurate accumulation.    epilogue_fusion (`bool`):
+            Whether to use epilogue fusion.    max_autotune (`bool`):
+            Whether to use max autotune.    shape_padding (`bool`):
+            Whether to use shape padding.    cudagraphs (`bool`):
+            Whether to use CUDA graphs.    debug (`bool`):
+            Whether to enable debug mode.    fullgraph (`bool`):
+            Whether to use full graph.    import_from_cache (`bool`):
+            Whether to import from cache.    disable (`bool`):
+            Whether to disable compilation.    return_logits (`bool`):
+            Whether to return logits.    unsloth_force_compile (`bool`):
+            Whether to force compilation.
+    
+    Returns:
+        `tuple[list[str], bool]`: A tuple containing the list of model types and a boolean indicating if SDPA is supported.
+    """
     if Version(torch_version) < Version("2.4.0"):
         print(
             "="*30 + \
@@ -1267,15 +1528,78 @@ LOGITS_ERROR_STRING = \
     "trainer.train()\n```\n"\
     "No need to restart your console - just add `os.environ['UNSLOTH_RETURN_LOGITS'] = '1'` before trainer.train() and re-run the cell!"
 
-def raise_logits_error(*args, **kwargs): raise NotImplementedError(LOGITS_ERROR_STRING)
-def return_none(*args, **kwargs): return None
+def raise_logits_error(*args, **kwargs) -> NoReturn:
+    """
+    Raises a `NotImplementedError` with a message indicating that logits are empty and how to enable them.
+    
+    Args:
+        *args: Variable length argument list.    **kwargs: Arbitrary keyword arguments.
+    
+    Returns:
+        None
+    """
+    raise NotImplementedError(LOGITS_ERROR_STRING)
+def return_none(*args, **kwargs) -> None:
+    """
+    Returns None.
+    
+    Args:
+        *args: Variable length argument list.    **kwargs: Arbitrary keyword arguments.
+    
+    Returns:
+        None
+    """
+    return None
 class EmptyLogits:
+    """
+    A class representing empty logits with methods to raise errors when accessed.
+    
+    This class is used to inform users that logits are not available unless explicitly enabled by setting an environment variable.
+    
+    Methods:
+        raise_getattr_error(attr: str): Raises an error or returns None based on the attribute accessed.
+        __repr__(): Returns a string representation of the error message.
+        __str__(): Returns a string representation of the error message.
+    """
     def __init__(self): return
-    def raise_getattr_error(self, attr): return return_none if attr == "to" else raise_logits_error
+    def raise_getattr_error(self, attr: str) -> Callable[..., None] | NoReturn:
+        """
+        Raises an error or returns a function to handle attribute access for empty logits.
+        
+        Args:
+            attr (`str`):
+                The attribute being accessed.
+        
+        Returns:
+            `Callable[..., None] | NoReturn`: Returns a function that does nothing if the attribute is 'to', otherwise raises an error.
+        """
+        return return_none if attr == "to" else raise_logits_error
     __getitem__ = raise_logits_error
+
     __getattr__ = raise_getattr_error
-    def __repr__(self): return LOGITS_ERROR_STRING
-    def __str__ (self): return LOGITS_ERROR_STRING
+
+    def __repr__(self) -> str:
+        """
+        Returns a string representation of the error message for empty logits.
+        
+        Args:
+            None
+        
+        Returns:
+            `str`: The error message string.
+        """
+        return LOGITS_ERROR_STRING
+    def __str__ (self) -> str:
+        """
+        Returns a string representation of the error message for empty logits.
+        
+        Args:
+            None
+        
+        Returns:
+            `str`: The error message string.
+        """
+        return LOGITS_ERROR_STRING
 pass
 EMPTY_LOGITS = EmptyLogits()
 functions = dir(torch.Tensor)

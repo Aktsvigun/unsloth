@@ -16,7 +16,7 @@ from unsloth_zoo.utils import Version
 from bitsandbytes.nn import Linear4bit as Bnb_Linear4bit
 from peft.tuners.lora import Linear4bit as Peft_Linear4bit
 from peft.tuners.lora import Linear as Peft_Linear
-from typing import Optional, Callable, Union, List
+from typing import Optional, Callable, Union, List, Any
 import sys
 import requests
 import torch
@@ -105,14 +105,27 @@ ALLOWED_QUANTS = \
     "q3_k_xs" : "3-bit extra small quantization",
 }
 
-def print_quantization_methods():
+def print_quantization_methods() -> None:
+    """
+    Prints all available quantization methods and their descriptions.
+    """
     for key, value in ALLOWED_QUANTS.items():
         print(f'"{key}"  ==> {value}')
     pass
 pass
 
 
-def check_if_sentencepiece_model(model, temporary_location = "_unsloth_sentencepiece_temp"):
+def check_if_sentencepiece_model(model, temporary_location: str = "_unsloth_sentencepiece_temp") -> bool:
+    """
+    Checks if the given model uses a SentencePiece tokenizer.
+    
+    Args:
+        model: The model to check
+        temporary_location: Temporary directory to save tokenizer files for checking
+    
+    Returns:
+        bool: True if model uses SentencePiece tokenizer, False otherwise
+    """
     if not hasattr(model, "_saved_temp_tokenizer"): return False
 
     temp_tokenizer = model._saved_temp_tokenizer
@@ -133,7 +146,13 @@ def check_if_sentencepiece_model(model, temporary_location = "_unsloth_sentencep
 pass
 
 
-def _free_cached_model(model):
+def _free_cached_model(model) -> None:
+    """
+    Frees cached model files from disk to save space.
+    
+    Args:
+        model: The model whose cached files should be removed
+    """
     from huggingface_hub import scan_cache_dir
     cached_repos = list(scan_cache_dir().repos)
 
@@ -155,7 +174,17 @@ def _free_cached_model(model):
 pass
 
 
-def _merge_lora(layer, name):
+def _merge_lora(layer, name: str) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Merges LoRA weights into the base model weights.
+    
+    Args:
+        layer: The layer containing LoRA weights
+        name: Name identifier for the layer
+    
+    Returns:
+        tuple: Merged weights tensor and optional bias tensor
+    """
 
     bias = getattr(layer, "bias", None)
     if isinstance(layer, (Bnb_Linear4bit, Peft_Linear4bit, Peft_Linear)):
@@ -186,7 +215,14 @@ def _merge_lora(layer, name):
 pass
 
 
-def fast_save_pickle(shard, name):
+def fast_save_pickle(shard, name: str) -> None:
+    """
+    Quickly saves data to a pickle file.
+    
+    Args:
+        shard: Data to save
+        name: Filename to save to
+    """
     # Use this if # CPUs is <= 2
     print(f"Unsloth: Saving {name}...")
     torch.save(
@@ -203,32 +239,47 @@ pass
 @torch.inference_mode
 def unsloth_save_model(
     model,
-    tokenizer,
+    tokenizer: Optional[Any],
     save_directory       : Union[str, os.PathLike],
-    save_method          : str = "lora", # ["lora", "merged_16bit", "merged_4bit"]
-    push_to_hub          : bool = False,
+    save_method          : str                        = "lora", # ["lora", "merged_16bit", "merged_4bit"]
+    push_to_hub          : bool                       = False,
     token                : Optional[Union[str, bool]] = None,
-    is_main_process      : bool = True,
-    state_dict           : Optional[dict] = None,
-    save_function        : Callable = torch.save,
-    max_shard_size       : Union[int, str] = "5GB",
-    safe_serialization   : bool = True,
-    variant              : Optional[str] = None,
-    save_peft_format     : bool = True,
+    is_main_process      : bool                       = True,
+    state_dict           : Optional[dict]             = None,
+    save_function        : Callable                   = torch.save,
+    max_shard_size       : Union[int, str]            = "5GB",
+    safe_serialization   : bool                       = True,
+    variant              : Optional[str]              = None,
+    save_peft_format     : bool                       = True,
 
     # Push to hub
-    use_temp_dir         : Optional[bool] = None,
-    commit_message       : Optional[str] = "Trained with Unsloth",
-    private              : Optional[bool] = None,
-    create_pr            : bool = False,
-    revision             : str = None,
-    commit_description   : str = "Upload model trained with Unsloth 2x faster",
-    tags                 : List[str] = None,
+    use_temp_dir         : Optional[bool]             = None,
+    commit_message       : Optional[str]              = "Trained with Unsloth",
+    private              : Optional[bool]             = None,
+    create_pr            : bool                       = False,
+    revision             : str                        = None,
+    commit_description   : str                        = "Upload model trained with Unsloth 2x faster",
+    tags                 : List[str]                  = None,
 
     # Our functions
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.9,
-):
+    temporary_location   : str                        = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                      = 0.9,
+) -> tuple[str, Optional[str]]:
+    """
+    Saves a model with various options for format and quantization.
+    
+    Args:
+        model: Model to save
+        tokenizer: Associated tokenizer
+        save_directory: Where to save the model
+        save_method: Format to save ('lora', 'merged_16bit', 'merged_4bit')
+        push_to_hub: Whether to push to HuggingFace Hub
+        token: HuggingFace API token
+        [other standard save parameters]
+    
+    Returns:
+        tuple: Save directory and optional username
+    """
     if token is None: token = get_token()
 
     if commit_message is None: commit_message = ""
@@ -759,14 +810,26 @@ def unsloth_save_model(
 pass
 
 
-def install_llama_cpp_clone_non_blocking():
+def install_llama_cpp_clone_non_blocking() -> subprocess.Popen:
+    """
+    Clones llama.cpp repository in a non-blocking way.
+    
+    Returns:
+        subprocess.Popen: The running process
+    """
     full_command = ["git", "clone", "--recursive", "https://github.com/ggerganov/llama.cpp"]
     run_installer = subprocess.Popen(full_command, stdout = subprocess.DEVNULL, stderr = subprocess.STDOUT)
     return run_installer
 pass
 
 
-def install_llama_cpp_make_non_blocking():
+def install_llama_cpp_make_non_blocking() -> tuple[subprocess.Popen, bool]:
+    """
+    Compiles llama.cpp in a non-blocking way.
+    
+    Returns:
+        tuple: The running process and whether CMake was used
+    """
     # https://github.com/ggerganov/llama.cpp/issues/7062
     # Weirdly GPU conversion for GGUF breaks??
     # env = { **os.environ, "LLAMA_CUDA": "1", }
@@ -803,14 +866,33 @@ def install_llama_cpp_make_non_blocking():
 pass
 
 
-def install_python_non_blocking(packages = []):
+def install_python_non_blocking(packages: List[str] = []) -> subprocess.Popen:
+    """
+    Installs Python packages in a non-blocking way.
+    
+    Args:
+        packages: List of package names to install
+    
+    Returns:
+        subprocess.Popen: The running process
+    """
     full_command = ["pip", "install"] + packages
     run_installer = subprocess.Popen(full_command, stdout = subprocess.DEVNULL, stderr = subprocess.STDOUT)
     return run_installer
 pass
 
 
-def try_execute(commands, force_complete = False):
+def try_execute(commands: List[str], force_complete: bool = False) -> Optional[str]:
+    """
+    Attempts to execute shell commands with error handling.
+    
+    Args:
+        commands: List of commands to execute
+        force_complete: Whether to raise errors on failure
+    
+    Returns:
+        Optional[str]: None or 'CMAKE' if cmake detected
+    """
     for command in commands:
         with subprocess.Popen(command, shell = True, stdout = subprocess.PIPE, stderr = subprocess.STDOUT, bufsize = 1) as sp:
             for line in sp.stdout:
@@ -833,7 +915,13 @@ def try_execute(commands, force_complete = False):
 pass
 
 
-def install_llama_cpp_old(version = -10):
+def install_llama_cpp_old(version: int = -10) -> None:
+    """
+    Installs an older version of llama.cpp as fallback.
+    
+    Args:
+        version: Which older version to install (-10 = 10th latest)
+    """
     # Download the 10th latest release since the latest might be broken!
     # FALLBACK mechanism
     releases = subprocess.check_output(["git", "ls-remote", "--tags", "https://github.com/ggerganov/llama.cpp.git"])
@@ -901,7 +989,13 @@ def install_llama_cpp_old(version = -10):
 pass
 
 
-def install_llama_cpp_blocking(use_cuda = False):
+def install_llama_cpp_blocking(use_cuda: bool = False) -> None:
+    """
+    Installs llama.cpp in a blocking way.
+    
+    Args:
+        use_cuda: Whether to enable CUDA support
+    """
     # https://github.com/ggerganov/llama.cpp/issues/7062
     # Weirdly GPU conversion for GGUF breaks??
     # use_cuda = "LLAMA_CUDA=1" if use_cuda else ""
@@ -933,7 +1027,16 @@ def install_llama_cpp_blocking(use_cuda = False):
 pass
 
 
-def get_executable(executables):
+def get_executable(executables: List[str]) -> Optional[str]:
+    """
+    Finds an executable in system paths.
+    
+    Args:
+        executables: List of executable names to search for
+    
+    Returns:
+        Optional[str]: Path to found executable or None
+    """
     # Get system locations (System Path).split(system separator)
     system_directories = os.environ.get("PATH").split(os.pathsep)
 
@@ -951,12 +1054,27 @@ pass
 def save_to_gguf(
     model_type           : str,
     model_dtype          : str,
-    is_sentencepiece     : bool = False,
-    model_directory      : str = "unsloth_finetuned_model",
-    quantization_method  = "fast_quantized", # Can be a list of options! ["q4_k_m", "q8_0", "q5_k_m"]
-    first_conversion     : str = None,
-    _run_installer = None, # Non blocking install of llama.cpp
-):
+    is_sentencepiece     : bool                = False,
+    model_directory      : str                 = "unsloth_finetuned_model",
+    quantization_method: Union[str, List[str]] = "fast_quantized", # Can be a list of options! ["q4_k_m", "q8_0", "q5_k_m"]
+    first_conversion     : str                 = None,
+    _run_installer: Optional[Any]              = None, # Non blocking install of llama.cpp
+) -> tuple[List[str], bool]:
+    """
+    Converts a model to GGUF format.
+    
+    Args:
+        model_type: Type of model ('llama', 'mistral' etc)
+        model_dtype: Model dtype ('float16', 'bfloat16')
+        is_sentencepiece: Whether using SentencePiece tokenizer
+        model_directory: Directory containing model files
+        quantization_method: Quantization method(s) to use
+        first_conversion: Initial conversion format
+        _run_installer: Optional installer process
+    
+    Returns:
+        tuple: List of saved file locations and whether full precision was kept
+    """
     # logger.warning(
     #     "NOTICE: llama.cpp GGUF conversion is currently unstable, since llama.cpp is\n"\
     #     "undergoing some major bug fixes as at 5th of May 2024. This is not an Unsloth issue.\n"\
@@ -1285,21 +1403,21 @@ pass
 def unsloth_save_pretrained_merged(
     self,
     save_directory       : Union[str, os.PathLike],
-    tokenizer            = None,
-    save_method          : str = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
-    push_to_hub          : bool = False,
+    tokenizer: Optional[Any]                          = None,
+    save_method          : str                        = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
+    push_to_hub          : bool                       = False,
     token                : Optional[Union[str, bool]] = None,
-    is_main_process      : bool = True,
-    state_dict           : Optional[dict] = None,
-    save_function        : Callable = torch.save,
-    max_shard_size       : Union[int, str] = "5GB",
-    safe_serialization   : bool = True,
-    variant              : Optional[str] = None,
-    save_peft_format     : bool = True,
-    tags                 : List[str] = None,
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.75,
-):
+    is_main_process      : bool                       = True,
+    state_dict           : Optional[dict]             = None,
+    save_function        : Callable                   = torch.save,
+    max_shard_size       : Union[int, str]            = "5GB",
+    safe_serialization   : bool                       = True,
+    variant              : Optional[str]              = None,
+    save_peft_format     : bool                       = True,
+    tags                 : List[str]                  = None,
+    temporary_location   : str                        = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                      = 0.75,
+) -> None:
     """
         Same as .save_pretrained(...) except 4bit weights are auto
         converted to float16 with as few overhead as possible.
@@ -1328,21 +1446,21 @@ pass
 def unsloth_push_to_hub_merged(
     self,
     repo_id              : str,
-    tokenizer            = None,
-    save_method          : str = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
-    use_temp_dir         : Optional[bool] = None,
-    commit_message       : Optional[str] = "Trained with Unsloth",
-    private              : Optional[bool] = None,
+    tokenizer: Optional[Any]                      = None,
+    save_method          : str                    = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
+    use_temp_dir         : Optional[bool]         = None,
+    commit_message       : Optional[str]          = "Trained with Unsloth",
+    private              : Optional[bool]         = None,
     token                : Union[bool, str, None] = None,
-    max_shard_size       : Union[int, str, None] = "5GB",
-    create_pr            : bool = False,
-    safe_serialization   : bool = True,
-    revision             : str = None,
-    commit_description   : str = "Upload model trained with Unsloth 2x faster",
-    tags                 : Optional[List[str]] = None,
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.75,
-):
+    max_shard_size       : Union[int, str, None]  = "5GB",
+    create_pr            : bool                   = False,
+    safe_serialization   : bool                   = True,
+    revision             : str                    = None,
+    commit_description   : str                    = "Upload model trained with Unsloth 2x faster",
+    tags                 : Optional[List[str]]    = None,
+    temporary_location   : str                    = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                  = 0.75,
+) -> None:
     """
         Same as .push_to_hub(...) except 4bit weights are auto
         converted to float16 with as few overhead as possible.
@@ -1397,7 +1515,18 @@ This {model_type} model was trained 2x faster with [Unsloth](https://github.com/
 """
 
 
-def _determine_username(save_directory, old_username, token):
+def _determine_username(save_directory: str, old_username: Optional[str], token: Optional[str]) -> tuple[str, str]:
+    """
+    Determines the HuggingFace username from a repo path.
+    
+    Args:
+        save_directory: Repo path
+        old_username: Optional existing username
+        token: HuggingFace API token
+    
+    Returns:
+        tuple: Full repo path and username
+    """
     username = ""
     save_directory = save_directory.lstrip("./")
     if "/" not in save_directory:
@@ -1419,10 +1548,22 @@ pass
 
 def create_huggingface_repo(
     model,
-    save_directory,
-    token = None,
-    private = False,
-):
+    save_directory: str,
+    token: Optional[str] = None,
+    private: bool        = False,
+) -> tuple[str, Any]:
+    """
+    Creates a new HuggingFace repository.
+    
+    Args:
+        model: The model being saved
+        save_directory: Repo path
+        token: HuggingFace API token
+        private: Whether repo should be private
+    
+    Returns:
+        tuple: Repo path and HfApi instance
+    """
     if token is None :
         token = get_token()
     pass
@@ -1458,15 +1599,32 @@ pass
 
 def upload_to_huggingface(
     model,
-    save_directory,
-    token,
-    method,
-    extra = "",
-    file_location = None,
-    old_username = None,
-    private = None,
-    create_config = True,
-):
+    save_directory: str,
+    token: str,
+    method: str,
+    extra: str                   = "",
+    file_location: Optional[str] = None,
+    old_username: Optional[str]  = None,
+    private: Optional[bool]      = None,
+    create_config: bool          = True,
+) -> str:
+    """
+    Uploads files to HuggingFace Hub.
+    
+    Args:
+        model: The model being uploaded
+        save_directory: Repo path
+        token: HuggingFace API token
+        method: Type of upload
+        extra: Additional tag
+        file_location: File to upload
+        old_username: Optional existing username
+        private: Whether repo is private
+        create_config: Whether to create config file
+    
+    Returns:
+        str: Username
+    """
     save_directory, username = _determine_username(save_directory, old_username, token)
 
     from huggingface_hub import create_repo
@@ -1547,7 +1705,16 @@ def upload_to_huggingface(
 pass
 
 
-def fix_tokenizer_bos_token(tokenizer):
+def fix_tokenizer_bos_token(tokenizer) -> tuple[bool, Optional[str]]:
+    """
+    Fixes tokenizer BOS token issues.
+    
+    Args:
+        tokenizer: Tokenizer to check
+    
+    Returns:
+        tuple: Whether fix was applied and original chat template
+    """
     # Check if BOS added already, then warn
     fix_bos_token = False
     chat_template = getattr(tokenizer, "chat_template", None)
@@ -1579,7 +1746,7 @@ def fix_tokenizer_bos_token(tokenizer):
 pass
 
 
-def create_ollama_modelfile(tokenizer, gguf_location):
+def create_ollama_modelfile(tokenizer, gguf_location: str) -> Optional[str]:
     """
         Creates an Ollama Modelfile.
         Use ollama.create(model = "new_ollama_model", modelfile = modelfile)
@@ -1629,7 +1796,19 @@ def create_ollama_model(
     model_name: str,
     tag: str,
     modelfile_path: str
-):
+) -> str:
+    """
+    Creates an Ollama model file.
+    
+    Args:
+        username: Creator username
+        model_name: Name for the model
+        tag: Version tag
+        modelfile_path: Path to modelfile
+    
+    Returns:
+        str: Status message
+    """
     try:
         init_check = subprocess.run(
             ['curl', 'http://localhost:11434'], capture_output=True, text=True,  timeout=3
@@ -1663,7 +1842,18 @@ def create_ollama_model(
 pass
 
 
-def push_to_ollama_hub(username: str, model_name: str, tag: str):
+def push_to_ollama_hub(username: str, model_name: str, tag: str) -> str:
+    """
+    Pushes a model to Ollama Hub.
+    
+    Args:
+        username: Creator username
+        model_name: Model name
+        tag: Version tag
+    
+    Returns:
+        str: Status message
+    """
     try:
         init_check = subprocess.run(
             ['curl', 'http://localhost:11434'], capture_output=True, text=True,  timeout=3
@@ -1698,11 +1888,21 @@ def push_to_ollama_hub(username: str, model_name: str, tag: str):
 
 def push_to_ollama(
     tokenizer,
-    gguf_location,
+    gguf_location: str,
     username: str,
     model_name: str,
     tag: str
-):
+) -> None:
+    """
+    Handles full Ollama model creation and push.
+    
+    Args:
+        tokenizer: Associated tokenizer
+        gguf_location: Path to GGUF file
+        username: Creator username
+        model_name: Model name
+        tag: Version tag
+    """
     model_file = create_ollama_modelfile(
         tokenizer=tokenizer,
         gguf_location=gguf_location
@@ -1734,23 +1934,23 @@ def push_to_ollama(
 def unsloth_save_pretrained_gguf(
     self,
     save_directory       : Union[str, os.PathLike],
-    tokenizer            = None,
-    quantization_method  : str = "fast_quantized",
-    first_conversion     : str = None,
-    push_to_hub          : bool = False,
+    tokenizer: Optional[Any]                          = None,
+    quantization_method  : str                        = "fast_quantized",
+    first_conversion     : str                        = None,
+    push_to_hub          : bool                       = False,
     token                : Optional[Union[str, bool]] = None,
-    private              : Optional[bool] = None,
-    is_main_process      : bool = True,
-    state_dict           : Optional[dict] = None,
-    save_function        : Callable = torch.save,
-    max_shard_size       : Union[int, str] = "5GB",
-    safe_serialization   : bool = True,
-    variant              : Optional[str] = None,
-    save_peft_format     : bool = True,
-    tags                 : List[str] = None,
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.85,
-):
+    private              : Optional[bool]             = None,
+    is_main_process      : bool                       = True,
+    state_dict           : Optional[dict]             = None,
+    save_function        : Callable                   = torch.save,
+    max_shard_size       : Union[int, str]            = "5GB",
+    safe_serialization   : bool                       = True,
+    variant              : Optional[str]              = None,
+    save_peft_format     : bool                       = True,
+    tags                 : List[str]                  = None,
+    temporary_location   : str                        = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                      = 0.85,
+) -> None:
     """
         Same as .save_pretrained(...) except 4bit weights are auto
         converted to float16 then converted to GGUF / llama.cpp format.
@@ -1917,22 +2117,22 @@ pass
 def unsloth_push_to_hub_gguf(
     self,
     repo_id              : str,
-    tokenizer            = None,
-    quantization_method  : str = "fast_quantized",
-    first_conversion     : str = None,
-    use_temp_dir         : Optional[bool] = None,
-    commit_message       : Optional[str] = "Trained with Unsloth",
-    private              : Optional[bool] = None,
+    tokenizer: Optional[Any]                      = None,
+    quantization_method  : str                    = "fast_quantized",
+    first_conversion     : str                    = None,
+    use_temp_dir         : Optional[bool]         = None,
+    commit_message       : Optional[str]          = "Trained with Unsloth",
+    private              : Optional[bool]         = None,
     token                : Union[bool, str, None] = None,
-    max_shard_size       : Union[int, str, None] = "5GB",
-    create_pr            : bool = False,
-    safe_serialization   : bool = True,
-    revision             : str = None,
-    commit_description   : str = "Upload model trained with Unsloth 2x faster",
-    tags                 : Optional[List[str]] = None,
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.85,
-):
+    max_shard_size       : Union[int, str, None]  = "5GB",
+    create_pr            : bool                   = False,
+    safe_serialization   : bool                   = True,
+    revision             : str                    = None,
+    commit_description   : str                    = "Upload model trained with Unsloth 2x faster",
+    tags                 : Optional[List[str]]    = None,
+    temporary_location   : str                    = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                  = 0.85,
+) -> None:
     """
         Same as .push_to_hub(...) except 4bit weights are auto
         converted to float16 then converted to GGUF / llama.cpp format.
@@ -2090,7 +2290,15 @@ def unsloth_push_to_hub_gguf(
 pass
 
 # Corrected function to save LoRA to a custom directory
-def save_lora_to_custom_dir(model, tokenizer, save_directory):
+def save_lora_to_custom_dir(model, tokenizer, save_directory: str) -> None:
+    """
+    Saves LoRA adapters to a custom directory.
+    
+    Args:
+        model: Model with LoRA adapters
+        tokenizer: Associated tokenizer
+        save_directory: Directory to save to
+    """
     # Create the custom directory if it doesn't exist
     os.makedirs(save_directory, exist_ok=True)
 
@@ -2108,16 +2316,25 @@ def unsloth_convert_lora_to_ggml_and_push_to_hub(
     self,
     tokenizer,
     repo_id: str,
-    use_temp_dir: Optional[bool] = None,
+    use_temp_dir: Optional[bool]  = None,
     commit_message: Optional[str] = "Converted LoRA to GGML with Unsloth",
-    private: Optional[bool] = None,
+    private: Optional[bool]       = None,
     token: Union[bool, str, None] = None,
-    create_pr: bool = False,
-    revision: str = None,
-    commit_description: str = "Convert LoRA to GGML format using Unsloth",
-    temporary_location: str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage: float = 0.85,
-):
+    create_pr: bool               = False,
+    revision: str                 = None,
+    commit_description: str       = "Convert LoRA to GGML format using Unsloth",
+    temporary_location: str       = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage: float   = 0.85,
+) -> None:
+    """
+    Converts LoRA to GGML and pushes to HuggingFace Hub.
+    
+    Args:
+        model: Model with LoRA adapters
+        tokenizer: Associated tokenizer
+        repo_id: HF repo to push to
+        [other push parameters]
+    """
     if not os.path.exists("llama.cpp"):
         if IS_KAGGLE_ENVIRONMENT:
             python_install = install_python_non_blocking(["protobuf"])
@@ -2176,9 +2393,18 @@ def unsloth_convert_lora_to_ggml_and_save_locally(
     self,
     save_directory: str, # Added parameter for the folder name
     tokenizer,
-    temporary_location: str = "_unsloth_temporary_saved_buffers",
+    temporary_location: str     = "_unsloth_temporary_saved_buffers",
     maximum_memory_usage: float = 0.85,
-):
+) -> None:
+    """
+    Converts LoRA to GGML and saves locally.
+    
+    Args:
+        model: Model with LoRA adapters
+        save_directory: Where to save
+        tokenizer: Associated tokenizer
+        [other save parameters]
+    """
     if not os.path.exists("llama.cpp"):
         if IS_KAGGLE_ENVIRONMENT:
             python_install = install_python_non_blocking(["protobuf"])
@@ -2239,11 +2465,24 @@ from unsloth_zoo.llama_cpp import (
 @torch.inference_mode
 def save_to_gguf_generic(
     model,
-    save_directory,
-    quantization_type = "Q8_0",
-    repo_id = None,
-    token = None,
+    save_directory: str,
+    quantization_type: str = "Q8_0",
+    repo_id: Optional[str] = None,
+    token: Optional[str]   = None,
 ):
+    """
+    Generic GGUF conversion function.
+    
+    Args:
+        model: Model to convert
+        save_directory: Where to save
+        quantization_type: Quantization method
+        repo_id: Optional HF repo to push to
+        token: HF API token
+    
+    Returns:
+        dict: Conversion metadata
+    """
     if token is None and repo_id is not None: token = get_token()
     if repo_id is not None and token is None:
         raise RuntimeError("Unsloth: Please specify a token for uploading!")
@@ -2284,31 +2523,39 @@ pass
 def unsloth_generic_save(
     model,
     tokenizer,
-    save_directory       : Union[str, os.PathLike] = "unsloth_finetuned_merge",
-    save_method          : str = "lora", # ["lora", "merged_16bit", "merged_4bit"]
-    push_to_hub          : bool = False,
+    save_directory       : Union[str, os.PathLike]    = "unsloth_finetuned_merge",
+    save_method          : str                        = "lora", # ["lora", "merged_16bit", "merged_4bit"]
+    push_to_hub          : bool                       = False,
     token                : Optional[Union[str, bool]] = None,
-    is_main_process      : bool = True,
-    state_dict           : Optional[dict] = None,
-    save_function        : Callable = torch.save,
-    max_shard_size       : Union[int, str] = "5GB",
-    safe_serialization   : bool = True,
-    variant              : Optional[str] = None,
-    save_peft_format     : bool = True,
+    is_main_process      : bool                       = True,
+    state_dict           : Optional[dict]             = None,
+    save_function        : Callable                   = torch.save,
+    max_shard_size       : Union[int, str]            = "5GB",
+    safe_serialization   : bool                       = True,
+    variant              : Optional[str]              = None,
+    save_peft_format     : bool                       = True,
 
     # Push to hub
-    use_temp_dir         : Optional[bool] = None,
-    commit_message       : Optional[str] = "Trained with Unsloth",
-    private              : Optional[bool] = None,
-    create_pr            : bool = False,
-    revision             : str = None,
-    commit_description   : str = "Upload model trained with Unsloth 2x faster",
-    tags                 : List[str] = None,
+    use_temp_dir         : Optional[bool]             = None,
+    commit_message       : Optional[str]              = "Trained with Unsloth",
+    private              : Optional[bool]             = None,
+    create_pr            : bool                       = False,
+    revision             : str                        = None,
+    commit_description   : str                        = "Upload model trained with Unsloth 2x faster",
+    tags                 : List[str]                  = None,
 
     # Our functions
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.9,
-):
+    temporary_location   : str                        = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                      = 0.9,
+) -> None:
+    """
+    Generic model saving function with multiple format options.
+    
+    Args:
+        model: Model to save
+        tokenizer: Associated tokenizer
+        [standard save parameters]
+    """
     if token is None and push_to_hub: token = get_token()
 
     if save_method == "merged_4bit":
@@ -2341,21 +2588,21 @@ pass
 def unsloth_generic_save_pretrained_merged(
     self,
     save_directory       : Union[str, os.PathLike],
-    tokenizer            = None,
-    save_method          : str = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
-    push_to_hub          : bool = False,
+    tokenizer: Optional[Any]                          = None,
+    save_method          : str                        = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
+    push_to_hub          : bool                       = False,
     token                : Optional[Union[str, bool]] = None,
-    is_main_process      : bool = True,
-    state_dict           : Optional[dict] = None,
-    save_function        : Callable = torch.save,
-    max_shard_size       : Union[int, str] = "5GB",
-    safe_serialization   : bool = True,
-    variant              : Optional[str] = None,
-    save_peft_format     : bool = True,
-    tags                 : List[str] = None,
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.75,
-):
+    is_main_process      : bool                       = True,
+    state_dict           : Optional[dict]             = None,
+    save_function        : Callable                   = torch.save,
+    max_shard_size       : Union[int, str]            = "5GB",
+    safe_serialization   : bool                       = True,
+    variant              : Optional[str]              = None,
+    save_peft_format     : bool                       = True,
+    tags                 : List[str]                  = None,
+    temporary_location   : str                        = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                      = 0.75,
+) -> None:
     """
         Same as .push_to_hub(...) except 4bit weights are auto
         converted to float16 with as few overhead as possible.
@@ -2384,21 +2631,21 @@ pass
 def unsloth_generic_push_to_hub_merged(
     self,
     repo_id              : str,
-    tokenizer            = None,
-    save_method          : str = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
-    use_temp_dir         : Optional[bool] = None,
-    commit_message       : Optional[str] = "Trained with Unsloth",
-    private              : Optional[bool] = None,
+    tokenizer: Optional[Any]                      = None,
+    save_method          : str                    = "merged_16bit", # ["lora", "merged_16bit", "merged_4bit"]
+    use_temp_dir         : Optional[bool]         = None,
+    commit_message       : Optional[str]          = "Trained with Unsloth",
+    private              : Optional[bool]         = None,
     token                : Union[bool, str, None] = None,
-    max_shard_size       : Union[int, str, None] = "5GB",
-    create_pr            : bool = False,
-    safe_serialization   : bool = True,
-    revision             : str = None,
-    commit_description   : str = "Upload model trained with Unsloth 2x faster",
-    tags                 : Optional[List[str]] = None,
-    temporary_location   : str = "_unsloth_temporary_saved_buffers",
-    maximum_memory_usage : float = 0.75,
-):
+    max_shard_size       : Union[int, str, None]  = "5GB",
+    create_pr            : bool                   = False,
+    safe_serialization   : bool                   = True,
+    revision             : str                    = None,
+    commit_description   : str                    = "Upload model trained with Unsloth 2x faster",
+    tags                 : Optional[List[str]]    = None,
+    temporary_location   : str                    = "_unsloth_temporary_saved_buffers",
+    maximum_memory_usage : float                  = 0.75,
+) -> None:
     """
         Same as .push_to_hub(...) except 4bit weights are auto
         converted to float16 with as few overhead as possible.
@@ -2427,12 +2674,28 @@ def unsloth_generic_push_to_hub_merged(
 pass
 
 
-def not_implemented_save(*args, **kwargs):
+def not_implemented_save(*args, **kwargs) -> None:
+    """
+    Placeholder function for unsupported save operations.
+    
+    Raises:
+        NotImplementedError: Always raises this error
+    """
     raise NotImplementedError("Unsloth: Sorry GGUF is currently not supported for vision models!")
 pass
 
 
-def patch_saving_functions(model, vision = False):
+def patch_saving_functions(model, vision: bool = False):
+    """
+    Patches model with custom saving methods.
+    
+    Args:
+        model: Model to patch
+        vision: Whether model is vision-based
+    
+    Returns:
+        The patched model
+    """
     import inspect
     import types
     from typing import Callable, Optional, Union, List

@@ -1,3 +1,4 @@
+from typing import ContextManager, Union
 import itertools
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -15,18 +16,61 @@ from grouped_gemm.kernels.tuning import (
 )
 
 
-def print_delimiter(char="-", length=80):
+def print_delimiter(char: str="-", length: int=80) -> None:
+    """
+    Prints a delimiter line composed of a repeated character.
+    
+    Args:
+        char (`str`, optional):
+            The character to be repeated. Defaults to '-'.
+        length (`int`, optional):
+            The number of times the character is repeated. Defaults to 80.
+    """
     print(char * length)
 
 
 @contextmanager
-def delimiter_context():
+def delimiter_context() -> ContextManager[None]:
+    """
+    A context manager that prints a delimiter line before and after the execution of the block of code it
+    wraps.
+    
+    This is useful for visually separating different sections of output in the console.
+    
+    Yields:
+        ContextManager[None]:
+            A context manager that, when used with the `with` statement, will print a delimiter line before
+            entering the block and after exiting the block.
+    """
     print_delimiter()
     yield
     print_delimiter()
 
 
-def make_inputs(M, N, K, E, topk, dtype, requires_grad=False):
+def make_inputs(M: int, N: int, K: int, E: int, topk: int, dtype: torch.dtype, requires_grad: bool=False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generates random input tensors for testing.
+    
+    Args:
+        M (`int`):
+            First dimension size of input tensors.
+        N (`int`):
+            Second dimension size of input tensors.
+        K (`int`):
+            Third dimension size of input tensors.
+        E (`int`):
+            Number of experts.
+        topk (`int`):
+            Top-k value for selection.
+        dtype (`torch.dtype`):
+            Data type of the generated tensors.
+        requires_grad (`bool`, optional):
+            Whether the generated tensors require gradient computation. Defaults to False.
+    
+    Returns:
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            Five generated tensors (X1, X2, W1, W2, score) with specified properties.
+    """
     X1 = (
         torch.randn((M, K), device="cuda", dtype=dtype, requires_grad=requires_grad)
         / 10
@@ -59,30 +103,84 @@ def make_inputs(M, N, K, E, topk, dtype, requires_grad=False):
 
 @dataclass(kw_only=True)
 class DataConfig:
+    """
+    Data configuration class for defining input parameters.
+    
+    Args:
+        seq_len (`int`):
+            Sequence length.
+        dtype (`torch.dtype`):
+            Data type of the tensors.
+        device (`str`, optional):
+            Device to which the tensors will be allocated. Defaults to 'cuda'.
+        bs (`int`, optional):
+            Batch size. Defaults to 1.
+    """
     seq_len: int
     dtype: torch.dtype
     device: str = "cuda"
-    bs: int = 1
+
+    bs: int     = 1
+
 
 
 @dataclass(kw_only=True)
 class ModelConfig:
+    """
+    Model configuration class for defining model parameters.
+    
+    Args:
+        hidden_size (`int`):
+            Size of the hidden layer.
+        intermediate_size (`int`):
+            Size of the intermediate layer.
+        num_experts (`int`):
+            Number of experts in the model.
+        topk (`int`):
+            Top-k value for selection.
+        use_sigmoid (`bool`):
+            Whether to use a sigmoid function.
+        renormalize (`bool`):
+            Whether to renormalize the outputs.    pre_mul (`bool`, optional):
+            Whether to apply multiplication before processing. Defaults to False.    post_mul (`bool`):
+            Whether to apply multiplication after processing. Computed as the negation of `pre_mul`.
+    """
     hidden_size: int
     intermediate_size: int
     num_experts: int
     topk: int
     use_sigmoid: bool
     renormalize: bool
-    pre_mul: bool = False
+    pre_mul: bool  = False
+
     post_mul: bool = field(init=False)
 
+
     def __post_init__(self):
+        """
+        Computes the `post_mul` attribute based on the `pre_mul` attribute.
+        
+        This method is called after the initialization of the `ModelConfig` instance to set the `post_mul`
+        attribute as the negation of the `pre_mul` attribute.
+        """
         self.post_mul = not self.pre_mul
 
 
 @dataclass(kw_only=True)
 class GroupedGEMMTestConfig:
+    """
+    Test configuration class for grouped GEMM operations.
+    
+    Args:
+        name (`str`, optional):
+            Name of the test configuration. Defaults to 'test'.
+    data_config (`DataConfig`):
+            Data configuration for the test.
+    model_config (`ModelConfig`):
+            Model configuration for the test.
+    """
     name: str = "test"
+
     data_config: DataConfig
     model_config: ModelConfig
 
@@ -95,14 +193,44 @@ TOLERANCE = {
 
 
 # from https://github.com/triton-lang/triton/blob/main/bench/triton_bench/testing.py
-def assert_equal(ref, tri):
+def assert_equal(ref: Union[torch.Tensor, Any], tri: Union[torch.Tensor, Any]) -> None:
+    """
+    Asserts that two values are equal.
+    
+    Args:
+        ref (`Union[torch.Tensor, Any]`):
+            Reference value to compare against.
+        tri (`Union[torch.Tensor, Any]`):
+            Value to be tested.
+    
+    Raises:
+        AssertionError: If the reference value is not equal to the tested value.
+    """
     if isinstance(ref, torch.Tensor):
         assert torch.all(ref == tri), f"tensors not equal {ref} != {tri}"
     else:
         assert ref == tri, f"ref not equal to tri {ref} != {tri}"
 
 
-def assert_close(ref, tri, maxtol=None, rmstol=None, description="--", verbose=True):
+def assert_close(ref: torch.Tensor, tri: torch.Tensor, maxtol: float=None, rmstol: float=None, description: str="--", verbose: bool=True) -> None:
+    """
+    Asserts that two tensors are close to each other within specified tolerances.
+    
+    Args:
+        ref (`torch.Tensor`):
+            Reference tensor.
+        tri (`torch.Tensor`):
+            Tensor to be tested.
+        maxtol (`float`, optional):
+            Maximum tolerance for the relative error. Defaults to 2e-2.
+        rmstol (`float`, optional):
+            Root mean square tolerance for the relative error. Defaults to 4e-3.    description (`str`, optional):
+            Description for the assertion. Defaults to '--'.    verbose (`bool`, optional):
+            Whether to print detailed error information. Defaults to True.
+    
+    Raises:
+        AssertionError: If the tensors are not close within the specified tolerances.
+    """
     if tri.dtype.itemsize == 1:
         ref_as_type = ref.to(tri.dtype)
         if ref.dtype == tri.dtype:
@@ -173,18 +301,50 @@ def assert_close(ref, tri, maxtol=None, rmstol=None, description="--", verbose=T
     assert rms_err <= rmstol
 
 
-def assert_indx_equal(ref, tri):
+def assert_indx_equal(ref: torch.Tensor, tri: torch.Tensor) -> None:
+    """
+    Asserts that two tensors are equal up to the length of the first tensor, and the remaining elements of the second
+    tensor are -1.
+    
+    Args:
+        ref (`torch.Tensor`):
+            Reference tensor.
+        tri (`torch.Tensor`):
+            Tensor to be tested.
+    
+    Raises:
+        AssertionError: If the tensors are not equal as specified.
+    """
     assert_equal(ref, tri[: len(ref)])
     assert torch.all(tri[len(ref) :] == -1)
 
 
 def get_kernel_test_configs(
-    BLOCK_SIZE_M=32,
-    BLOCK_SIZE_N=32,
-    BLOCK_SIZE_K=32,
-    num_warps=4,
-    num_stages=2,
+    BLOCK_SIZE_M: int = 32,
+    BLOCK_SIZE_N: int = 32,
+    BLOCK_SIZE_K: int = 32,
+    num_warps: int    = 4,
+    num_stages: int   = 2,
 ) -> list[KernelConfig]:
+    """
+    Generates a list of kernel test configurations for forward, backward dX, and backward dW operations.
+    
+    Args:
+        BLOCK_SIZE_M (`int`, optional):
+            Block size for the M dimension. Defaults to 32.
+        BLOCK_SIZE_N (`int`, optional):
+            Block size for the N dimension. Defaults to 32.
+        BLOCK_SIZE_K (`int`, optional):
+            Block size for the K dimension. Defaults to 32.    num_warps (`int`, optional):
+            Number of warps. Defaults to 4.    num_stages (`int`, optional):
+            Number of stages. Defaults to 2.
+    
+    Returns:
+        list[KernelConfig]:
+            List of kernel configurations for forward operations.    list[KernelConfig]:
+            List of kernel configurations for backward dX operations.    list[KernelConfig]:
+            List of kernel configurations for backward dW operations.
+    """
     configs_fwd = []
     configs_bwd_dX = []
     configs_bwd_dW = []
@@ -248,7 +408,22 @@ def remove_feature_flags(
     permute_y: bool = True,
     tma_loads: bool = True,
     tma_store: bool = True,
-):
+) -> list[KernelConfig]:
+    """
+    Removes specific feature flags from kernel configurations.
+    
+    Args:
+        kernel_configs (`list[KernelConfig]`):
+            List of kernel configurations.    permute_x (`bool`, optional):
+            Whether to remove configurations with permute_x set to True. Defaults to True.    permute_y (`bool`, optional):
+            Whether to remove configurations with permute_y set to True. Defaults to True.    tma_loads (`bool`, optional):
+            Whether to remove configurations with TMA load flags set to True. Defaults to True.    tma_store (`bool`, optional):
+            Whether to remove configurations with TMA store flag set to True. Defaults to True.
+    
+    Returns:
+        list[KernelConfig]:
+            List of pruned kernel configurations with specified feature flags removed.
+    """
     pruned_configs = []
     for config in kernel_configs:
         # Remove permute flags first:

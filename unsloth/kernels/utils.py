@@ -1,3 +1,4 @@
+from typing import Any
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,6 +50,19 @@ pass
 
 
 def calculate_settings(n : int) -> (int, int,):
+    """
+    Calculates the block size and number of warps for a given input size for Triton kernel launch parameters.
+    
+    Args:
+        n (`int`):
+            The input size for which to calculate the block size and number of warps.
+    
+    Returns:
+        `tuple[int, int]`: A tuple containing the block size and the number of warps to be used for the kernel launch.
+    
+    Raises:
+        `RuntimeError`: If the input size exceeds the maximum CUDA blocksize of 65536.
+    """
     BLOCK_SIZE : int = next_power_of_2(n)
     if BLOCK_SIZE > MAX_FUSED_SIZE:
         raise RuntimeError(f"Cannot launch Triton kernel since n = {n} exceeds "\
@@ -77,6 +91,16 @@ pass
 _cuda_getCurrentRawStream = torch._C._cuda_getCurrentRawStream
 c_void_p = ctypes.c_void_p
 def _get_tensor_stream(tensor: torch_Tensor) -> c_void_p:
+    """
+    Retrieves the CUDA stream associated with a given tensor.
+    
+    Args:
+        tensor (`torch.Tensor`):
+            The tensor for which to get the CUDA stream.
+    
+    Returns:
+        `ctypes.c_void_p`: A pointer to the CUDA stream associated with the tensor.
+    """
     return c_void_p(_cuda_getCurrentRawStream(tensor.device.index))
 pass
 
@@ -110,9 +134,33 @@ torch_matmul = torch.matmul
 torch_addmm  = torch.addmm
 torch_empty  = torch.empty
 
-def QUANT_STATE(W): return getattr(W, "quant_state", None)
+def QUANT_STATE(W: torch.Tensor):
+    """
+    Retrieves the quantization state from a given tensor, if it exists.
+    
+    Args:
+        W (`torch.Tensor`):
+            The tensor from which to retrieve the quantization state.
+    
+    Returns:
+        `Any`: The quantization state of the tensor, or None if it does not exist.
+    """
+    return getattr(W, "quant_state", None)
 
-def get_lora_parameters(proj):
+def get_lora_parameters(proj) -> tuple[torch.Tensor, Any, Any, Any, Any]:
+    """
+    Retrieves the parameters for the LoRA (Low-Rank Adaptation) module, if it is enabled.
+    
+    Args:
+        proj (`Any`):
+            The projection layer from which to retrieve the LoRA parameters.
+    
+    Returns:
+        `tuple[torch.Tensor, Any, Any, Any, Any]`: A tuple containing the weight tensor, quantization state, LoRA A weight, LoRA B weight, and LoRA scaling factor.
+    
+    Note:
+        If the LoRA module is disabled or merged, only the weight tensor and quantization state are returned.
+    """
     # For DPO or disabled adapters
     base_layer = getattr(proj, "base_layer", proj) # (proj.base_layer if hasattr(proj, "base_layer") else proj)
     W = base_layer.weight
@@ -136,7 +184,20 @@ def get_lora_parameters(proj):
 pass
 
 
-def get_lora_parameters_bias(proj):
+def get_lora_parameters_bias(proj) -> tuple[torch.Tensor, Any, Any, Any, Any, torch.Tensor]:
+    """
+    Retrieves the parameters for the LoRA (Low-Rank Adaptation) module, including the bias, if it is enabled.
+    
+    Args:
+        proj (`Any`):
+            The projection layer from which to retrieve the LoRA parameters.
+    
+    Returns:
+        `tuple[torch.Tensor, Any, Any, Any, Any, torch.Tensor]`: A tuple containing the weight tensor, quantization state, LoRA A weight, LoRA B weight, LoRA scaling factor, and bias.
+    
+    Note:
+        If the LoRA module is disabled or merged, only the weight tensor, quantization state, and bias are returned.
+    """
     # For DPO or disabled adapters
     base_layer = getattr(proj, "base_layer", proj) # (proj.base_layer if hasattr(proj, "base_layer") else proj)
     W = base_layer.weight
@@ -428,7 +489,26 @@ else:
 pass
 
 
-def fast_linear_forward(proj, X, temp_lora = None, out = None):
+def fast_linear_forward(proj, X: torch.Tensor, temp_lora: torch.Tensor = None, out: torch.Tensor = None) -> torch.Tensor:
+    """
+    Performs a fast linear forward pass with optional LoRA (Low-Rank Adaptation) parameters.
+    
+    Args:
+        proj (`Any`):
+            The projection layer containing the weights and LoRA parameters.
+        X (`torch.Tensor`):
+            The input tensor to the linear layer.
+    temp_lora (`torch.Tensor`, optional):
+            A temporary tensor for storing intermediate results during the LoRA computation.
+        out (`torch.Tensor`, optional):
+            An optional output tensor to store the result of the forward pass.
+    
+    Returns:
+        `torch.Tensor`: The output tensor after applying the linear transformation and LoRA adaptation.
+    
+    Note:
+        This function is optimized for performance and may use specialized implementations for certain input shapes.
+    """
 
     W, W_quant, lora_A, lora_B, lora_S, bias = get_lora_parameters_bias(proj)
     bsz, q_len, in_dim = X.shape
@@ -471,7 +551,32 @@ def fast_linear_forward(proj, X, temp_lora = None, out = None):
 pass
 
 
-def matmul_lora(X, W, W_quant, A, B, s, out = None):
+def matmul_lora(X: torch.Tensor, W: torch.Tensor, W_quant, A: torch.Tensor, B: torch.Tensor, s: float, out: torch.Tensor = None) -> torch.Tensor:
+    """
+    Performs matrix multiplication with optional LoRA (Low-Rank Adaptation) parameters.
+    
+    Args:
+        X (`torch.Tensor`):
+            The input tensor to be multiplied.
+        W (`torch.Tensor`):
+            The weight tensor of the linear layer.
+        W_quant (`Any`):
+            The quantization state of the weight tensor, if it is quantized.
+        A (`torch.Tensor`):
+            The LoRA A weight tensor.
+        B (`torch.Tensor`):
+            The LoRA B weight tensor.
+        s (`float`):
+            The LoRA scaling factor.
+        out (`torch.Tensor`, optional):
+            An optional output tensor to store the result of the matrix multiplication.
+    
+    Returns:
+        `torch.Tensor`: The output tensor after applying the matrix multiplication and LoRA adaptation.
+    
+    Note:
+        This function is optimized for performance and may use specialized implementations for certain input shapes.
+    """
     dtype = X.dtype
     W = fast_dequantize(W.t(), W_quant, use_global_buffer = True)
 

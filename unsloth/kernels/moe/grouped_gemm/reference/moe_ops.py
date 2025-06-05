@@ -1,9 +1,8 @@
-
 import torch
 import torch.nn.functional as F
 
 
-def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int):
+def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int) -> torch.Tensor:
     """
     Scatters X to a new tensor with shape [total_tokens, hidden_dim] where total_tokens is num_tokens * topk,
     permuting the tokens according to sorted_token_idx.
@@ -25,7 +24,19 @@ def permute(X: torch.Tensor, gather_indices: torch.Tensor, topk: int):
     return X[gather_indices // topk]
 
 
-def unpermute(X: torch.Tensor, gather_indices: torch.Tensor):
+def unpermute(X: torch.Tensor, gather_indices: torch.Tensor) -> torch.Tensor:
+    """
+    Undoes the permutation of the `permute` function.
+    
+    Args:
+        X (`torch.Tensor`):
+            The tensor to unpermute.
+        gather_indices (`torch.Tensor`):
+            The indices used to permute the tensor.
+    
+    Returns:
+        `torch.Tensor`: The unpermuted tensor.
+    """
     X = X.view(-1, X.shape[-1]) if X.ndim > 2 else X
     unpermuted = torch.empty_like(X)
     unpermuted.index_copy_(0, gather_indices, X)
@@ -37,9 +48,9 @@ def calculate_topk(
     top_k: int,
     use_sigmoid: bool,
     renormalize: bool,
-    pre_act: bool = True,
+    pre_act: bool  = True,
     post_act: bool = False,
-):
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     If post_act is True, then activation function is run AFTER topk
     If post_act is False, then activation function is run BEFORE topk
@@ -73,7 +84,7 @@ def calculate_topk(
 
 
 @torch.no_grad()
-def get_routing_indices(selected_experts, num_experts, return_scatter_indices: bool = False):
+def get_routing_indices(selected_experts: torch.Tensor, num_experts: int, return_scatter_indices: bool = False) -> tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Returns:
         token_counts_by_expert: [num_experts]
@@ -97,7 +108,7 @@ def get_routing_indices(selected_experts, num_experts, return_scatter_indices: b
         return token_counts_by_expert, gather_indices
 
 
-def torch_grouped_gemm(X, W, m_sizes, transpose=True):
+def torch_grouped_gemm(X: torch.Tensor, W: torch.Tensor, m_sizes: torch.Tensor, transpose: bool=True) -> torch.Tensor:
     """
     X: [M, K] if forward, else [M, N]
     W: [E, N, K]

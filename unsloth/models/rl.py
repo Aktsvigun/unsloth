@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 import torch
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union, Type
 import inspect
 import os
 import re
@@ -45,14 +45,34 @@ torch_compile_options = {
 
 from trl import __version__ as trl_version
 
-def vLLMSamplingParams(**kwargs):
+def vLLMSamplingParams(**kwargs) -> vllm.SamplingParams:
+    """
+    Create a vLLM SamplingParams object with the given keyword arguments.
+    
+    Args:
+        **kwargs: Arbitrary keyword arguments to be passed to the vLLM SamplingParams constructor.
+    
+    Returns:
+        vllm.SamplingParams: A vLLM SamplingParams object initialized with the provided keyword arguments.
+    """
     from vllm import SamplingParams
     sampling_params = SamplingParams(**kwargs)
     sampling_params._set_kwargs = kwargs
     return sampling_params
 pass
 
-def PatchRL(FastLanguageModel):
+def PatchRL(FastLanguageModel: FastLanguageModel) -> None:
+    """
+    Apply patches to the TRL library to enhance compatibility with vLLM and PEFT.
+    
+    Args:
+        FastLanguageModel (`FastLanguageModel`):
+            The FastLanguageModel instance to be used for inference and training.
+    
+    This function modifies the `unwrap_model_for_generation` context manager to ensure that the model is set to inference mode
+    and that the generate method returns clones of the output tensors. It also replaces the default
+    `unwrap_model_for_generation` method in TRL trainers with the modified version.
+    """
 
     from trl.models.utils import unwrap_model_for_generation
     from contextlib import contextmanager
@@ -160,7 +180,18 @@ class Unsloth{RLTrainer_name}(_Unsloth{RLTrainer_name}):
 pass
 '''
 
-def _patch_trl_rl_trainers(trainer_file = "grpo_trainer"):
+def _patch_trl_rl_trainers(trainer_file: str = "grpo_trainer") -> None:
+    """
+    Patch TRL RL trainers for compatibility with vLLM and PEFT.
+    
+    Args:
+        trainer_file (`str`, *optional*, defaults to `grpo_trainer`):
+            The name of the trainer file to be patched.
+    
+    This function patches the specified TRL RL trainer to work with vLLM and PEFT by modifying the source code of the trainer
+    and its configuration. It creates a new trainer class with additional parameters and functionality, and replaces the original
+    trainer class in the TRL library with the patched version.
+    """
     # Patch for vLLM and Unsloth PEFT
     import trl
     import trl.trainer
@@ -641,7 +672,29 @@ def _patch_trl_rl_trainers(trainer_file = "grpo_trainer"):
 pass
 
 
-def patch_functions(RLTrainer, trainer_file, RLTrainer_name, all_imports, imports):
+def patch_functions(RLTrainer: Type[trl.trainer.base_trainer.BaseTrainer], trainer_file: str, RLTrainer_name: str, all_imports: list[str], imports: list[str]) -> Optional[str]:
+    """
+    Patch functions in a TRL RL trainer for compatibility with vLLM and PEFT.
+    
+    Args:
+        RLTrainer (`Type[trl.trainer.base_trainer.BaseTrainer]`):
+            The TRL RL trainer class to be patched.
+        trainer_file (`str`):
+            The name of the trainer file.
+        RLTrainer_name (`str`):
+            The name of the RL trainer class.
+        all_imports (`list[str]`):
+            A list of all imports in the trainer file.
+        imports (`list[str]`):
+            A list of imports to be used in the patched functions.
+    
+    Returns:
+        `Optional[str]`: The source code of the patched RL trainer class, or `None` if no changes were made.
+    
+    This function patches the `__init__` method and other functions in the TRL RL trainer to work with vLLM and PEFT.
+    It modifies the source code to handle PEFT configurations, sets the use of vLLM if applicable, and replaces calls to vLLM
+    functions with the appropriate code for the patched trainer.
+    """
     init = inspect.getsource(RLTrainer.__init__)
     old_init = init
 
@@ -821,7 +874,13 @@ def patch_functions(RLTrainer, trainer_file, RLTrainer_name, all_imports, import
 pass
 
 
-def patch_trl_rl_trainers():
+def patch_trl_rl_trainers() -> None:
+    """
+    Patch all TRL RL trainers for compatibility with vLLM and PEFT.
+    
+    This function iterates over all TRL RL trainers and applies the `_patch_trl_rl_trainers` function to each one.
+    It ensures that all TRL RL trainers are patched to work with vLLM and PEFT, enabling enhanced functionality and compatibility.
+    """
     # Patch all TRL modules if they have vLLM or PEFT
     import trl.trainer
     all_trainers = dir(trl.trainer)
@@ -832,7 +891,20 @@ def patch_trl_rl_trainers():
 pass
 
 
-def PatchFastRL(algorithm = None, FastLanguageModel = None):
+def PatchFastRL(algorithm: Optional[str] = None, FastLanguageModel: Optional[FastLanguageModel] = None) -> None:
+    """
+    Apply patches to enable fast reinforcement learning with vLLM and PEFT.
+    
+    Args:
+        algorithm (`Optional[str]`, *optional*):
+            The name of the reinforcement learning algorithm to be patched.
+        FastLanguageModel (`Optional[FastLanguageModel]`, *optional*):
+            The FastLanguageModel instance to be used for inference and training.
+    
+    This function applies the `PatchRL` function to the provided FastLanguageModel instance and patches all TRL RL trainers
+    using the `patch_trl_rl_trainers` function. If an algorithm name is provided, it also patches the corresponding
+    statistics tracking using `PatchRLStatistics`.
+    """
     if FastLanguageModel is not None: PatchRL(FastLanguageModel)
     patch_trl_rl_trainers()
     if type(algorithm) is str and algorithm.islower():

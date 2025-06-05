@@ -19,13 +19,13 @@ from grouped_gemm.kernels.autotuning import (
 # Only account for the case when X is in expert order and we are permuting Y when fusing mul -- this precondition is checked in the interface
 @triton.jit
 def _grouped_gemm_forward_kernel(
-    x_ptr,
-    w_ptr,
-    y_ptr,
+    x_ptr: torch.Tensor,
+    w_ptr: torch.Tensor,
+    y_ptr: torch.Tensor,
     # Variable depending on routed probs
-    m_sizes_ptr,
-    gather_indices_ptr,
-    topk_weights_ptr,
+    m_sizes_ptr: torch.Tensor,
+    gather_indices_ptr: torch.Tensor,
+    topk_weights_ptr: torch.Tensor,
     # Constant problem shapes
     NUM_EXPERTS: tl.constexpr,
     NUM_TOKENS: tl.constexpr,
@@ -37,17 +37,78 @@ def _grouped_gemm_forward_kernel(
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     BLOCK_SIZE_K: tl.constexpr,
-    PERMUTE_X: tl.constexpr = False,
-    PERMUTE_Y: tl.constexpr = False,
-    FUSE_MUL_PRE: tl.constexpr = False,
-    FUSE_MUL_POST: tl.constexpr = False,
+    PERMUTE_X: tl.constexpr      = False,
+    PERMUTE_Y: tl.constexpr      = False,
+    FUSE_MUL_PRE: tl.constexpr   = False,
+    FUSE_MUL_POST: tl.constexpr  = False,
     USE_FAST_ACCUM: tl.constexpr = False,
     USE_TMA_LOAD_W: tl.constexpr = False,
     USE_TMA_LOAD_X: tl.constexpr = False,
-    USE_TMA_STORE: tl.constexpr = False,
-    acc_dtype: tl.constexpr = tl.float32,
-    FLATTEN: tl.constexpr = True,
+    USE_TMA_STORE: tl.constexpr  = False,
+    acc_dtype: tl.constexpr      = tl.float32,
+    FLATTEN: tl.constexpr        = True,
 ) -> None:
+    """
+    Triton kernel for grouped GEMM (Generalized Matrix Multiplication) forward pass.
+    
+    This kernel performs the forward computation of grouped GEMM operations, which are used in scenarios where multiple matrix multiplications are grouped together, such as in expert models with multiple heads or layers.
+    
+    Args:
+        x_ptr (`torch.Tensor`):
+            Pointer to the input tensor X.
+        w_ptr (`torch.Tensor`):
+            Pointer to the weight tensor W.
+        y_ptr (`torch.Tensor`):
+            Pointer to the output tensor Y.
+    
+    m_sizes_ptr (`torch.Tensor`):
+            Pointer to a tensor containing the sizes of each expert.
+        gather_indices_ptr (`torch.Tensor`):
+            Pointer to a tensor containing the gather indices for permutation.
+        topk_weights_ptr (`torch.Tensor`):
+            Pointer to a tensor containing the top-k weights for fusion.
+        NUM_EXPERTS (`int`, triton constant):
+            Number of experts in the grouped GEMM operation.
+        NUM_TOKENS (`int`, triton constant):
+            Number of tokens in the input.
+        TOPK (`int`, triton constant):
+            Number of top-k values to consider.
+        N (`int`, triton constant):
+            Number of columns in the weight matrix.
+        K (`int`, triton constant):
+            Number of columns in the input matrix.
+        NUM_SMS (`int`, triton constant):
+            Number of streaming multiprocessors (SMS) to use.
+        BLOCK_SIZE_M (`int`, triton constant):
+            Block size for the M dimension.
+        BLOCK_SIZE_N (`int`, triton constant):
+            Block size for the N dimension.
+        BLOCK_SIZE_K (`int`, triton constant):
+            Block size for the K dimension.
+        PERMUTE_X (`bool`, triton constant):
+            Whether to permute the input tensor X.
+        PERMUTE_Y (`bool`, triton constant):
+            Whether to permute the output tensor Y.
+        FUSE_MUL_PRE (`bool`, triton constant):
+            Whether to fuse multiplication before the GEMM operation.
+        FUSE_MUL_POST (`bool`, triton constant):
+            Whether to fuse multiplication after the GEMM operation.
+        USE_FAST_ACCUM (`bool`, triton constant):
+            Whether to use fast accumulation.
+        USE_TMA_LOAD_W (`bool`, triton constant):
+            Whether to use Tensor Memory Access (TMA) for loading weights.
+        USE_TMA_LOAD_X (`bool`, triton constant):
+            Whether to use TMA for loading input tensor X.
+        USE_TMA_STORE (`bool`, triton constant):
+            Whether to use TMA for storing the output tensor Y.
+        acc_dtype (`tl.dtype`, triton constant):
+            Data type for the accumulator.
+        FLATTEN (`bool`, triton constant):
+            Whether to flatten the expert indices.
+    
+    Returns:
+        None: The result is stored in the output tensor Y.
+    """
     tl.static_assert(K % BLOCK_SIZE_K == 0)
 
     TOTAL_TOKENS: tl.constexpr = NUM_TOKENS * TOPK

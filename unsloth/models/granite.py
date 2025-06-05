@@ -1,3 +1,4 @@
+from typing import Callable, Optional
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,16 +62,37 @@ pass
 def GraniteAttention_fast_forward(
     self,
     hidden_states:        torch.Tensor,
-    causal_mask:          Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:       Optional[torch.Tensor] = None,
-    position_ids:         Optional[torch.LongTensor] = None,
-    past_key_value:       Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:    bool = False,
-    use_cache:            bool = False,
-    padding_mask:         Optional[torch.LongTensor] = None,
+    causal_mask:          Optional[BlockDiagonalCausalMask]          = None,
+    attention_mask:       Optional[torch.Tensor]                     = None,
+    position_ids:         Optional[torch.LongTensor]                 = None,
+    past_key_value:       Optional[Tuple[torch.Tensor]]              = None,
+    output_attentions:    bool                                       = False,
+    use_cache:            bool                                       = False,
+    padding_mask:         Optional[torch.LongTensor]                 = None,
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    """
+    Performs the forward pass of the GraniteAttention module.
+    
+    Args:
+        hidden_states (`torch.Tensor`):
+            The input hidden states with shape (batch_size, sequence_length, hidden_size).
+        causal_mask (`BlockDiagonalCausalMask`, optional):
+            The causal mask for attention.
+        attention_mask (`torch.Tensor`, optional):
+            The attention mask for attention.    position_ids (`torch.LongTensor`, optional):
+            The position ids for the input.    past_key_value (`Tuple[torch.Tensor]`, optional):
+            The past key and value states.    output_attentions (`bool`):
+            Whether to output attention weights.    use_cache (`bool`):
+            Whether to use cache for key and value states.    padding_mask (`torch.LongTensor`, optional):
+            The padding mask for the input.    position_embeddings (`Tuple[torch.Tensor, torch.Tensor]`, optional):
+            The position embeddings for the input.
+    
+    Returns:
+        `Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]`:
+            The output tensor, attention weights, and past key and value states.
+    """
     
     # Clear inference
     if hasattr(self, "paged_attention"):
@@ -173,16 +195,35 @@ pass
 def GraniteDecoderLayer_fast_forward(
     self,
     hidden_states:        torch.Tensor,
-    causal_mask:          Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:       Optional[torch.Tensor] = None,
-    position_ids:         Optional[torch.LongTensor] = None,
-    past_key_value:       Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:    Optional[bool] = False,
-    use_cache:            Optional[bool] = False,
-    padding_mask:         Optional[torch.LongTensor] = None,
+    causal_mask:          Optional[BlockDiagonalCausalMask]           = None,
+    attention_mask:       Optional[torch.Tensor]                      = None,
+    position_ids:         Optional[torch.LongTensor]                  = None,
+    past_key_value:       Optional[Tuple[torch.Tensor]]               = None,
+    output_attentions:    Optional[bool]                              = False,
+    use_cache:            Optional[bool]                              = False,
+    padding_mask:         Optional[torch.LongTensor]                  = None,
     position_embeddings:  Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
-):
+) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    """
+    Performs the forward pass of the GraniteDecoderLayer module.
+    
+    Args:
+        hidden_states (`torch.Tensor`):
+            The input hidden states with shape (batch_size, sequence_length, hidden_size).    causal_mask (`BlockDiagonalCausalMask`, optional):
+            The causal mask for attention.    attention_mask (`torch.Tensor`, optional):
+            The attention mask for attention.    position_ids (`torch.LongTensor`, optional):
+            The position ids for the input.    past_key_value (`Tuple[torch.Tensor]`, optional):
+            The past key and value states.    output_attentions (`bool`, optional):
+            Whether to output attention weights.    use_cache (`bool`, optional):
+            Whether to use cache for key and value states.    padding_mask (`torch.LongTensor`, optional):
+            The padding mask for the input.    position_embeddings (`Tuple[torch.Tensor, torch.Tensor]`, optional):
+            The position embeddings for the input.
+    
+    Returns:
+        `tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]`:
+            The output tensor, attention weights, and past key and value states.
+    """
     residual_multiplier = \
         self.residual_multiplier \
         if hasattr(self, "residual_multiplier") else \
@@ -250,12 +291,29 @@ def GraniteAttention_fast_forward_inference(
     self,
     hidden_states:  torch.Tensor,
     past_key_value: Optional[Tuple[torch.Tensor]],
-    position_ids,
-    do_prefill = False,
-    attention_mask = None,
-    use_sliding_window = False,
+    position_ids: torch.LongTensor,
+    do_prefill: bool                                                  = False,
+    attention_mask: Optional[torch.Tensor]                            = None,
+    use_sliding_window: bool                                          = False,
     position_embeddings : Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-):
+) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Performs the forward pass of the GraniteAttention module during inference.
+    
+    Args:
+        hidden_states (`torch.Tensor`):
+            The input hidden states with shape (batch_size, sequence_length, hidden_size).    past_key_value (`Tuple[torch.Tensor]`, optional):
+            The past key and value states.    position_ids (`torch.LongTensor`):
+            The position ids for the input.    do_prefill (`bool`, optional):
+            Whether to prefill the attention cache.    attention_mask (`torch.Tensor`, optional):
+            The attention mask for attention.    use_sliding_window (`bool`, optional):
+            Whether to use sliding window attention.    position_embeddings (`Tuple[torch.Tensor, torch.Tensor]`, optional):
+            The position embeddings for the input.
+    
+    Returns:
+        `tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]`:
+            The output tensor and the updated key and value states.
+    """
     
     assert position_embeddings is not None, f"Granite model requires position embeddings to be specified"
 
@@ -368,11 +426,25 @@ pass
 # @torch.inference_mode
 def GraniteModel_fast_forward_inference(
     self,
-    input_ids,
-    past_key_values,
-    position_ids,
-    attention_mask = None,
-):
+    input_ids: torch.Tensor,
+    past_key_values: list[tuple[torch.Tensor, torch.Tensor]],
+    position_ids: torch.LongTensor,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> BaseModelOutputWithPast:
+    """
+    Performs the forward pass of the GraniteModel during inference.
+    
+    Args:
+        input_ids (`torch.Tensor`):
+            The input token ids with shape (batch_size, sequence_length).    past_key_values (`list[tuple[torch.Tensor, torch.Tensor]]`):
+            The past key and value states for each layer.    position_ids (`torch.LongTensor`):
+            The position ids for the input.    attention_mask (`torch.Tensor`, optional):
+            The attention mask for attention.
+    
+    Returns:
+        `BaseModelOutputWithPast`:
+            The output of the model with past key and value states.
+    """
     input_ids = input_ids[:,:self.max_seq_length]
     hidden_states = self.model.embed_tokens(input_ids)
     hidden_states = hidden_states.to(self.config.torch_dtype)
@@ -432,10 +504,28 @@ def GraniteModel_fast_forward_inference(
 pass
 
 class GraniteRotaryEmbedding(LlamaRotaryEmbedding):
-    def __init__(self, config):
+    """
+    A class for rotary position embeddings used in the Granite model.
+    
+    Args:
+        config (`DictConfig`):
+            The configuration for the rotary embeddings.
+    """
+    def __init__(self, config: DictConfig):
         super().__init__(config = config)
 
-def patched_init(original_init):
+def patched_init(original_init: Callable) -> Callable:
+    """
+    Patches the initialization function of a class.
+    
+    Args:
+        original_init (`Callable`):
+            The original initialization function to be patched.
+    
+    Returns:
+        `Callable`:
+            The patched initialization function.
+    """
     def new_init(self, *args, **kwargs):
         # we can use self.residual_multiplier arg in GraniteDecoderLayer_fast_forward as mentioned here
         # https://github.com/huggingface/transformers/blob/e5fd865ebae062b7cf03a81b8c6affeb39f30bec/src/transformers/models/granite/modeling_granite.py#L243
@@ -448,9 +538,34 @@ def patched_init(original_init):
     return new_init
 
 class FastGraniteModel(FastLlamaModel):
+    """
+    A class for fast inference of the Granite model.
+    
+    This class provides methods to patch the model for faster inference, including pre-patch and post-patch operations.
+    
+    Args:
+        None
+    
+    Methods:
+        pre_patch: Applies patches to the model for faster inference.    post_patch: Applies post-processing patches to the model after inference.
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies patches to the Granite model for faster inference.
+        
+        This method modifies the model's attention and decoding layers to optimize performance during inference.
+        
+        Args:
+            None
+        
+        Returns:
+            None
+        
+        Raises:
+            None
+        """
         init_name, function = patch_linear_scaling(
             model_name         = "granite",
             rope_module        = GraniteRotaryEmbedding,
@@ -479,7 +594,21 @@ class FastGraniteModel(FastLlamaModel):
 
 
     @staticmethod
-    def post_patch(model, tokenizer):
+    def post_patch(model: GraniteForCausalLM, tokenizer: PreTrainedTokenizer) -> tuple[GraniteForCausalLM, PreTrainedTokenizer]:
+        """
+        Applies post-processing patches to the Granite model after inference.
+        
+        This method performs cleanup and optimization tasks to ensure the model is in the correct state after inference.
+        
+        Args:
+            model (`GraniteForCausalLM`):
+                The model to be post-processed.    tokenizer (`PreTrainedTokenizer`):
+                The tokenizer associated with the model.
+        
+        Returns:
+            `tuple[GraniteForCausalLM, PreTrainedTokenizer]`:
+                The post-processed model and tokenizer.
+        """
 
         # Torch.compile fails on embedding matrix??
         # Workaround randomnly fixes it for torch versions < 2.2
@@ -547,4 +676,3 @@ class FastGraniteModel(FastLlamaModel):
         return model, tokenizer
     pass
 pass
-

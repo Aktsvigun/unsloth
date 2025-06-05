@@ -29,6 +29,35 @@ Reference implementation of Llama4 MoE block using triton grouped gemm.
 
 @dataclass
 class Llama4MoeResult:
+    """
+    A dataclass to store the intermediate results of a Mixture of Experts (MoE) computation.
+    
+    Attributes:
+        token_counts_by_expert (`torch.Tensor`):
+            Number of tokens assigned to each expert.
+        gather_indices (`torch.Tensor`):
+            Indices used to gather tokens for each expert.
+        topk_weights (`torch.Tensor`):
+            Top-k routing weights for each token.
+        hidden_states_after_weight_merge (`torch.Tensor`):
+            Hidden states after merging with routing weights.
+        first_gemm (`torch.Tensor`):
+            Output of the first grouped GEMM (General Matrix Multiplication) operation.
+        intermediate (`torch.Tensor`):
+            Intermediate tensor after applying the activation function.    
+        second_gemm (`torch.Tensor`):
+            Output of the second grouped GEMM operation.
+        hidden_states_unpermute (`torch.Tensor`):
+            Hidden states after unpermuting from expert order to token order.    
+        shared_expert_out (`torch.Tensor`):
+            Output of the shared expert.    
+        final_out (`torch.Tensor`):
+            Final output of the MoE block.    
+        router_logits (`torch.Tensor`, optional):
+            Logits from the router.
+    
+    This class is used to store and return all intermediate results of the MoE computation for debugging and analysis purposes.
+    """
     token_counts_by_expert: torch.Tensor
     gather_indices: torch.Tensor
     topk_weights: torch.Tensor
@@ -42,15 +71,42 @@ class Llama4MoeResult:
     router_logits: torch.Tensor = None
 
 
+
 class Llama4GroupedGemmTextMoe(Llama4TextMoe):
+    """
+    A class implementing the Mixture of Experts (MoE) block for the Llama4 model using grouped GEMM operations.
+    
+    This class extends `Llama4TextMoe` and overrides the forward pass to use grouped GEMM for efficient computation.
+    
+    Args:
+        config (`Llama4TextConfig`):
+            Configuration object for the Llama4 model.    
+        overlap_router_shared (`bool`):
+            Whether to overlap router and shared expert computations.    
+        verbose (`bool`):
+            Whether to print verbose information during initialization.    
+        debug (`bool`):
+            Whether to store intermediate results for debugging.
+    
+    Methods:
+        copy_weights: Copies weights from another Llama4TextMoe instance.    
+        check_weights: Checks if weights are equal to another Llama4TextMoe instance.    
+        act_and_mul: Applies the activation function and multiplies with the up projection.    
+        run_router: Computes router logits and selects experts.    
+        get_token_counts_and_gather_indices: Computes token counts and gather indices for each expert.    
+        forward: Performs the forward pass of the MoE block.
+    
+    This class is designed to be a drop-in replacement for the standard Llama4TextMoe block, providing optimized computation using grouped GEMM.
+    """
     EXPERT_WEIGHT_NAMES = ["experts.gate_up_proj", "experts.down_proj"]
+
 
     def __init__(
         self,
         config: Llama4TextConfig,
-        overlap_router_shared=False,
-        verbose=False,
-        debug=False,
+        overlap_router_shared: bool = False,
+        verbose: bool               = False,
+        debug: bool                 = False,
     ):
         super().__init__(config)
         self.overlap_router_shared = overlap_router_shared
@@ -98,7 +154,20 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
             self.shared_expert_end_event = torch.cuda.Event()
 
     @torch.no_grad
-    def copy_weights(self, other: Llama4TextMoe):
+    def copy_weights(self, other: Llama4TextMoe) -> Llama4GroupedGemmTextMoe:
+        """
+        Copies weights from another Llama4TextMoe instance to this Llama4GroupedGemmTextMoe instance.
+        
+        Args:
+            other (`Llama4TextMoe`):
+                The source model from which weights are copied.
+        
+        Returns:
+            `Llama4GroupedGemmTextMoe`:
+                The current instance with weights copied from the source model.
+        
+        This method ensures that the weights are permuted correctly to match the expected format for grouped GEMM operations.
+        """
         for name, param_to_copy in other.named_parameters():
             if self.verbose:
                 print(f"Copying {name} with shape {param_to_copy.shape}")
@@ -114,7 +183,19 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
 
         return self
 
-    def check_weights(self, other: Llama4TextMoe):
+    def check_weights(self, other: Llama4TextMoe) -> None:
+        """
+        Checks if the weights of this Llama4GroupedGemmTextMoe instance are equal to those of another Llama4TextMoe instance.
+        
+        Args:
+            other (`Llama4TextMoe`):
+                The model whose weights are compared.
+        
+        Raises:
+            AssertionError: If any weights are not equal or if any weights are not contiguous.
+        
+        This method is useful for verifying that weight copying or initialization has been performed correctly.
+        """
         for name, other_param in other.named_parameters():
             if any(n in name for n in self.EXPERT_WEIGHT_NAMES):
                 other_param = other_param.permute(0, 2, 1)
@@ -123,12 +204,42 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
             assert param.is_contiguous(), f"{name} not contiguous!"
 
     def act_and_mul(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Applies the activation function to the gate projection and multiplies with the up projection.
+        
+        Args:
+            x (`torch.Tensor`):
+                The input tensor containing the gate and up projections.
+        
+        Returns:
+            `torch.Tensor`:
+                The result of applying the activation function to the gate projection and multiplying with the up projection.
+        
+        This method is a helper function used in the forward pass of the MoE block.
+        """
         assert x.shape[-1] == 2 * self.experts.expert_dim
         gate_proj = x[..., : self.experts.expert_dim]
         up_proj = x[..., self.experts.expert_dim :]
         return self.experts.act_fn(gate_proj) * up_proj
 
     def run_router(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the router logits and selects the top-k experts for each token.
+        
+        Args:
+            hidden_states (`torch.Tensor`):
+                The input hidden states of shape (batch_size * sequence_length, hidden_dim).
+        
+        Returns:
+            `torch.Tensor`:
+                The router logits of shape (batch_size * sequence_length, num_experts).
+            `torch.Tensor`:
+                The top-k routing weights of shape (batch_size * sequence_length, top_k).
+            `torch.Tensor`:
+                The indices of the selected experts of shape (batch_size * sequence_length, top_k).
+        
+        This method is responsible for routing tokens to the selected experts based on the router logits.
+        """
         # router_logits: (batch * sequence_length, n_experts)
         hidden_states = hidden_states.view(-1, self.hidden_dim)
         router_logits = self.router(hidden_states)
@@ -143,6 +254,21 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
     def get_token_counts_and_gather_indices(
         self, selected_experts: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the number of tokens assigned to each expert and the indices for gathering tokens.
+        
+        Args:
+            selected_experts (`torch.Tensor`):
+                The indices of the selected experts for each token.
+        
+        Returns:
+            `torch.Tensor`:
+                The number of tokens assigned to each expert.
+            `torch.Tensor`:
+                The indices for gathering tokens from token order to expert order.
+        
+        This method is used to prepare the data for grouped GEMM operations by computing the necessary indices and counts.
+        """
         token_counts_by_expert, gather_indices = get_routing_indices(
             selected_experts, self.num_experts
         )
@@ -250,19 +376,58 @@ class Llama4GroupedGemmTextMoe(Llama4TextMoe):
 
 
 class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
+    """
+    A class implementing the Mixture of Experts (MoE) block for the Llama4 model using Triton grouped GEMM operations.
+    
+    This class extends `Llama4GroupedGemmTextMoe` and overrides the forward pass to use Triton for grouped GEMM operations.
+    
+    Args:
+        config (`Llama4TextConfig`):
+            Configuration object for the Llama4 model.    
+        overlap_router_shared (`bool`):
+            Whether to overlap router and shared expert computations.    
+        permute_x (`bool`):
+            Whether to permute the input tensor for the first grouped GEMM operation.    
+        permute_y (`bool`):
+            Whether to permute the output tensor for the second grouped GEMM operation.    
+        autotune (`bool`):
+            Whether to autotune the kernel configurations for grouped GEMM operations.    
+        kernel_config_fwd (`KernelConfigForward`):
+            The kernel configuration for the forward pass of grouped GEMM operations.    
+        kernel_config_bwd_dW (`KernelConfigBackward_dW`):
+            The kernel configuration for the backward pass of grouped GEMM operations with respect to the weights.    
+        kernel_config_bwd_dX (`KernelConfigBackward_dX`):
+            The kernel configuration for the backward pass of grouped GEMM operations with respect to the inputs.    
+        dW_only (`bool`):
+            Whether to compute only the gradients with respect to the weights.    
+        dX_only (`bool`):
+            Whether to compute only the gradients with respect to the inputs.    
+        verbose (`bool`):
+            Whether to print verbose information during initialization.
+    
+    Methods:
+        copy_weights: Copies weights from another Llama4TextMoe instance.    
+        check_weights: Checks if weights are equal to another Llama4TextMoe instance.    
+        act_and_mul: Applies the activation function and multiplies with the up projection.    
+        run_router: Computes router logits and selects experts.    
+        get_token_counts_and_gather_indices: Computes token counts and gather indices for each expert.    
+        forward: Performs the forward pass of the MoE block using Triton grouped GEMM operations.
+    
+    This class is designed to be a drop-in replacement for the standard Llama4TextMoe block, providing optimized computation using Triton grouped GEMM.
+    """
     def __init__(
         self,
         config: Llama4TextConfig,
-        overlap_router_shared=False,
-        permute_x: bool = False,
-        permute_y: bool = True,
-        autotune: bool = True,
-        kernel_config_fwd: KernelConfigForward = None,
+        overlap_router_shared: bool                   = False,
+        permute_x: bool                               = False,
+        permute_y: bool                               = True,
+        autotune: bool                                = True,
+        kernel_config_fwd: KernelConfigForward        = None,
         kernel_config_bwd_dW: KernelConfigBackward_dW = None,
         kernel_config_bwd_dX: KernelConfigBackward_dX = None,
-        dW_only: bool = False,
-        dX_only: bool = False,
-        verbose=False,
+        dW_only: bool                                 = False,
+        dX_only: bool                                 = False,
+        verbose: bool                                 = False,
     ):
         super().__init__(config, overlap_router_shared=overlap_router_shared)
         assert not permute_x, (
@@ -284,7 +449,20 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
         self.dX_only = dX_only
 
     @torch.no_grad
-    def copy_weights(self, other: Llama4TextMoe):
+    def copy_weights(self, other: Llama4TextMoe) -> Llama4TritonTextMoe:
+        """
+        Copies weights from another Llama4TextMoe instance to this Llama4TritonTextMoe instance.
+        
+        Args:
+            other (`Llama4TextMoe`):
+                The source model from which weights are copied.
+        
+        Returns:
+            `Llama4TritonTextMoe`:
+                The current instance with weights copied from the source model.
+        
+        This method ensures that the weights are permuted correctly to match the expected format for grouped GEMM operations.
+        """
         for name, param_to_copy in other.named_parameters():
             if self.verbose:
                 print(f"Copying {name} with shape {param_to_copy.shape}")
@@ -300,7 +478,19 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
 
         return self
 
-    def check_weights(self, other: Llama4TextMoe):
+    def check_weights(self, other: Llama4TextMoe) -> None:
+        """
+        Checks if the weights of this Llama4TritonTextMoe instance are equal to those of another Llama4TextMoe instance.
+        
+        Args:
+            other (`Llama4TextMoe`):
+                The model whose weights are compared.
+        
+        Raises:
+            AssertionError: If any weights are not equal or if any weights are not contiguous.
+        
+        This method is useful for verifying that weight copying or initialization has been performed correctly.
+        """
         for name, other_param in other.named_parameters():
             if any(n in name for n in self.EXPERT_WEIGHT_NAMES):
                 other_param = other_param.permute(0, 2, 1)
@@ -309,12 +499,42 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
             assert param.is_contiguous(), f"{name} not contiguous!"
 
     def act_and_mul(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Applies the activation function to the gate projection and multiplies with the up projection.
+        
+        Args:
+            x (`torch.Tensor`):
+                The input tensor containing the gate and up projections.
+        
+        Returns:
+            `torch.Tensor`:
+                The result of applying the activation function to the gate projection and multiplying with the up projection.
+        
+        This method is a helper function used in the forward pass of the MoE block.
+        """
         assert x.shape[-1] == 2 * self.experts.expert_dim
         gate_proj = x[..., : self.experts.expert_dim]
         up_proj = x[..., self.experts.expert_dim :]
         return self.experts.act_fn(gate_proj) * up_proj
 
     def run_router(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the router logits and selects the top-k experts for each token.
+        
+        Args:
+            hidden_states (`torch.Tensor`):
+                The input hidden states of shape (batch_size * sequence_length, hidden_dim).
+        
+        Returns:
+            `torch.Tensor`:
+                The router logits of shape (batch_size * sequence_length, num_experts).
+            `torch.Tensor`:
+                The top-k routing weights of shape (batch_size * sequence_length, top_k).
+            `torch.Tensor`:
+                The indices of the selected experts of shape (batch_size * sequence_length, top_k).
+        
+        This method is responsible for routing tokens to the selected experts based on the router logits.
+        """
         # router_logits: (batch * sequence_length, n_experts)
         hidden_states = hidden_states.view(-1, self.hidden_dim)
         router_logits = self.router(hidden_states)
@@ -329,6 +549,21 @@ class Llama4TritonTextMoe(Llama4GroupedGemmTextMoe):
     def get_token_counts_and_gather_indices(
         self, selected_experts: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the number of tokens assigned to each expert and the indices for gathering tokens.
+        
+        Args:
+            selected_experts (`torch.Tensor`):
+                The indices of the selected experts for each token.
+        
+        Returns:
+            `torch.Tensor`:
+                The number of tokens assigned to each expert.
+            `torch.Tensor`:
+                The indices for gathering tokens from token order to expert order.
+        
+        This method is used to prepare the data for grouped GEMM operations by computing the necessary indices and counts.
+        """
         token_counts_by_expert, gather_indices = get_routing_indices(
             selected_experts, self.num_experts
         )

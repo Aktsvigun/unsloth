@@ -51,7 +51,7 @@ import os
 import gc
 import math
 import functools
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, List, Union, Dict, Any
 import re, inspect, sys
 import contextlib
 import types
@@ -89,6 +89,31 @@ def unsloth_base_fast_generate(
     *args,
     **kwargs,
 ):
+    """
+    Enhanced generate method for fast generation with optimized settings and hardware-aware configurations.
+    
+    Args:
+        self: The model instance
+        *args: Variable length argument list
+        **kwargs: Arbitrary keyword arguments
+    
+    Returns:
+        output: The generated output from the model
+    
+    This method implements various optimizations for generation including:
+    - Automatic input detection
+    - Batch size handling
+    - Model-specific configuration
+    - Token type handling
+    - VLM (Vision-Language Model) support
+    - Data type management
+    - LoRA module handling
+    - Cache configuration
+    - Generation configuration
+    - Hardware-specific optimizations
+    
+    The method also includes error handling and fallback mechanisms for different model architectures.
+    """
     if len(args) != 0:
         input_ids = args[0]
     elif "input_ids" in kwargs:
@@ -240,27 +265,79 @@ pass
 
 
 class FastBaseModel:
+    """
+    Base class for fast model operations with optimized loading and training capabilities.
+    
+    This class provides static methods for model initialization, PEFT model creation,
+    and post-processing operations. It includes functionality for:
+    - Model loading with quantization support
+    - LoRA adapter integration
+    - Gradient checkpointing
+    - Hardware-specific optimizations
+    - Training/inference mode switching
+    - Memory management
+    - Tokenizer configuration
+    
+    The class is designed to work with various model architectures and provides
+    performance enhancements for both training and inference scenarios.
+    """
 
     @staticmethod
     def from_pretrained(
-        model_name        = "unsloth/Llama-3.2-1B-Instruct",
-        max_seq_length    = 2048,
-        dtype             = None,
-        load_in_4bit      = True,
-        load_in_8bit      = False,
-        full_finetuning   = False,
-        token             = None,
-        device_map        = "sequential",
-        trust_remote_code = False,
-        model_types       = None,
-        tokenizer_name    = None,
-        auto_model        = AutoModelForVision2Seq,
-        use_gradient_checkpointing = "unsloth",
-        supports_sdpa     = True,
-        whisper_language  = None,
-        whisper_task      = None,
+        model_name: str                              = "unsloth/Llama-3.2-1B-Instruct",
+        max_seq_length: int                          = 2048,
+        dtype: Optional[torch.dtype]                 = None,
+        load_in_4bit: bool                           = True,
+        load_in_8bit: bool                           = False,
+        full_finetuning: bool                        = False,
+        token: Optional[str]                         = None,
+        device_map: str                              = "sequential",
+        trust_remote_code: bool                      = False,
+        model_types: Optional[List[str]]             = None,
+        tokenizer_name: Optional[str]                = None,
+        auto_model: AutoModelForVision2Seq           = AutoModelForVision2Seq,
+        use_gradient_checkpointing: Union[bool, str] = "unsloth",
+        supports_sdpa: bool                          = True,
+        whisper_language: Optional[str]              = None,
+        whisper_task: Optional[str]                  = None,
         **kwargs,
-    ):
+    ) -> Tuple[Any, AutoTokenizer]:
+        """
+        Load a model from a pretrained checkpoint with optimized configuration.
+        
+        Args:
+            model_name (str): Name or path of the pretrained model
+            max_seq_length (int): Maximum sequence length for the model
+            dtype (torch.dtype, optional): Data type for model weights
+            load_in_4bit (bool): Whether to load the model in 4-bit quantization
+            load_in_8bit (bool): Whether to load the model in 8-bit quantization
+            full_finetuning (bool): Whether to enable full finetuning mode
+            token (str, optional): Authentication token for private models
+            device_map (str): Device mapping strategy
+            trust_remote_code (bool): Whether to trust remote code execution
+            model_types (List[str], optional): List of model types
+            tokenizer_name (str, optional): Name or path for the tokenizer
+            auto_model (AutoModelForVision2Seq): Auto model class for vision models
+            use_gradient_checkpointing (Union[bool, str]): Gradient checkpointing configuration
+            supports_sdpa (bool): Whether the model supports SDPA
+            whisper_language (str, optional): Language for Whisper models
+            whisper_task (str, optional): Task for Whisper models
+            **kwargs: Additional arguments for model loading
+        
+        Returns:
+            Tuple[Any, AutoTokenizer]: A tuple containing the loaded model and tokenizer
+        
+        This method handles model loading with various optimizations including:
+        - Quantization support
+        - Data type configuration
+        - Tokenizer setup
+        - Model-specific patches
+        - Hardware-aware optimizations
+        - Memory management
+        
+        It also provides detailed logging and environment configuration for
+        the loaded model.
+        """
         if model_types is None:
             raise RuntimeError(
                 "Unsloth: Please use FastModel or FastVisionModel and not use FastBaseModel directly!"
@@ -509,28 +586,63 @@ class FastBaseModel:
     @staticmethod
     def get_peft_model(
         model,
-        r                          = 16,
-        target_modules             = None,
-        lora_alpha                 = 16,
-        lora_dropout               = 0,
-        bias                       = "none",
-        finetune_vision_layers     = True,
-        finetune_language_layers   = True,
-        finetune_attention_modules = True,
-        finetune_mlp_modules       = True,
-        layers_to_transform        = None,
-        layers_pattern             = None,
-        use_gradient_checkpointing = True,
-        random_state               = 3407,
-        max_seq_length             = 2048, # not used anymore
-        use_rslora                 = False,
-        modules_to_save            = None,
-        init_lora_weights          = True,
-        loftq_config               = {},
-        task_type                  = TaskType.CAUSAL_LM,
-        temporary_location         = "_unsloth_temporary_saved_buffers",
+        r: int                                          = 16,
+        target_modules: Optional[Union[List[str], str]] = None,
+        lora_alpha: int                                 = 16,
+        lora_dropout: float                             = 0,
+        bias: str                                       = "none",
+        finetune_vision_layers: bool                    = True,
+        finetune_language_layers: bool                  = True,
+        finetune_attention_modules: bool                = True,
+        finetune_mlp_modules: bool                      = True,
+        layers_to_transform: Optional[List[int]]        = None,
+        layers_pattern: Optional[str]                   = None,
+        use_gradient_checkpointing: bool                = True,
+        random_state: int                               = 3407,
+        max_seq_length: int                             = 2048, # not used anymore
+        use_rslora: bool                                = False,
+        modules_to_save: Optional[List[str]]            = None,
+        init_lora_weights: bool                         = True,
+        loftq_config: Dict[str, Any]                    = {},
+        task_type: TaskType                             = TaskType.CAUSAL_LM,
+        temporary_location: str                         = "_unsloth_temporary_saved_buffers",
         **kwargs
     ):
+        """
+        Convert a base model to a PEFT (Parameter-Efficient Fine-Tuning) model.
+        
+        Args:
+            model: The base model to convert
+            r (int): Rank for LoRA adaptation
+        target_modules (Union[List[str], str], optional): Modules to apply LoRA
+        lora_alpha (int): Alpha value for LoRA scaling
+        lora_dropout (float): Dropout probability for LoRA layers
+        bias (str): Bias configuration for LoRA
+        finetune_vision_layers (bool): Whether to fine-tune vision layers
+        finetune_language_layers (bool): Whether to fine-tune language layers
+        finetune_attention_modules (bool): Whether to fine-tune attention modules
+        finetune_mlp_modules (bool): Whether to fine-tune MLP modules
+        layers_to_transform (List[int], optional): Specific layers to transform
+        layers_pattern (str, optional): Pattern for layer selection
+        use_gradient_checkpointing (bool): Whether to use gradient checkpointing
+        random_state (int): Random seed for initialization
+        max_seq_length (int): Maximum sequence length
+        use_rslora (bool): Whether to use rank-stable LoRA
+        modules_to_save (List[str], optional): Additional modules to save
+        init_lora_weights (bool): Whether to initialize LoRA weights
+        loftq_config (Dict[str, Any]): Configuration for LoFTQ quantization
+        task_type (TaskType): Type of task for the model
+        temporary_location (str): Temporary storage location
+        **kwargs: Additional arguments
+        
+        Returns:
+            model: The PEFT-adapted model
+        
+        This method implements LoRA adaptation with various configuration options,
+        including module selection, quantization support, and training
+        optimizations. It handles both vision and language model components
+        and provides memory-efficient fine-tuning capabilities.
+        """
         if os.environ.get("UNSLOTH_ENABLE_FULL_FINETUNING", "0") == "1":
             print("Unsloth: Full finetuning is enabled, so .get_peft_model has no effect")
             return model
@@ -605,9 +717,30 @@ class FastBaseModel:
     @staticmethod
     def post_patch_model(
         model,
-        use_gradient_checkpointing = True,
-        trust_remote_code = False,
+        use_gradient_checkpointing: bool = True,
+        trust_remote_code: bool          = False,
     ):
+        """
+        Apply post-processing patches to a model for optimized training and inference.
+        
+        Args:
+            model: The model to patch
+            use_gradient_checkpointing (bool): Whether to use gradient checkpointing    trust_remote_code (bool): Whether to trust remote code execution
+        
+        Returns:
+            model: The patched model
+        
+        This method applies various optimizations including:
+        - Gradient checkpointing configuration
+        - Training/inference mode setup
+        - Tokenizer padding configuration
+        - Memory management
+        - Hardware-specific optimizations
+        - Model-specific patches
+        
+        It ensures the model is properly configured for both training and
+        inference scenarios with optimized performance characteristics.
+        """
         full_finetuning = os.environ.get("UNSLOTH_ENABLE_FULL_FINETUNING", "0") == "1"
 
         float32_mixed_precision = True
@@ -664,6 +797,26 @@ class FastBaseModel:
 
     @staticmethod
     def for_inference(model):
+        """
+        Configure a model for inference mode with optimized settings.
+        
+        Args:
+            model: The model to configure
+        
+        Returns:
+            model: The model configured for inference
+        
+        This method disables training-specific settings and enables
+        optimizations for inference including:
+        - Disabling gradient computation
+        - Setting evaluation mode
+        - Configuring padding side
+        - Enabling generation flags
+        - Disabling training-specific components
+        
+        It ensures the model is properly configured for efficient
+        inference execution.
+        """
         if not hasattr(model, "parameters"):
             raise TypeError("Unsloth: I think you're passing a tokenizer, not the model to for_inference!")
 
@@ -695,7 +848,29 @@ class FastBaseModel:
 
 
     @staticmethod
-    def for_training(model, use_gradient_checkpointing = True):
+    def for_training(model, use_gradient_checkpointing: bool = True):
+        """
+        Configure a model for training mode with optimized settings.
+        
+        Args:
+            model: The model to configure
+            use_gradient_checkpointing (bool): Whether to use gradient checkpointing
+        
+        Returns:
+            model: The model configured for training
+        
+        This method enables training-specific settings and optimizations
+        including:
+        - Enabling gradient computation
+        - Setting training mode
+        - Configuring padding side
+        - Disabling generation flags
+        - Enabling training-specific components
+        - Gradient checkpointing configuration
+        
+        It ensures the model is properly configured for efficient
+        training execution with memory optimizations.
+        """
         if not hasattr(model, "parameters"):
             raise TypeError("Unsloth: I think you're passing a tokenizer, not the model to for_training!")
 

@@ -16,7 +16,7 @@ import torch
 import gc
 import math
 import functools
-from typing import Optional, Tuple, List, Union
+from typing import Optional, Tuple, List, Union, Dict, Type, T, Any
 from ._utils import *
 from ._utils import patch_unsloth_smart_gradient_checkpointing
 from ._utils import __version__
@@ -84,7 +84,17 @@ HAS_XFORMERS = xformers is not None
 BlockDiagonalCausalMask = xformers.attn_bias.BlockDiagonalCausalMask if HAS_XFORMERS else None
 
 
-def original_apply_qkv(self, X):
+def original_apply_qkv(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Applies the QKV projections to the input tensor.
+    
+    Args:
+        self: The attention module instance
+        X (`torch.Tensor`): Input tensor to apply projections to
+    
+    Returns:
+        `Tuple[torch.Tensor, torch.Tensor, torch.Tensor]`: Tuple containing Q, K, V projections
+    """
     Q = self.q_proj(X)
     K = self.k_proj(X)
     V = self.v_proj(X)
@@ -92,7 +102,17 @@ def original_apply_qkv(self, X):
 pass
 
 
-def original_apply_o(self, X):
+def original_apply_o(self, X: torch.Tensor) -> torch.Tensor:
+    """
+    Applies the output projection to the input tensor.
+    
+    Args:
+        self: The attention module instance
+        X (`torch.Tensor`): Input tensor to apply projection to
+    
+    Returns:
+        `torch.Tensor`: Output projection result
+    """
     O = self.o_proj(X)
     return O
 pass
@@ -104,7 +124,19 @@ torch_nn_functional_softmax = torch.nn.functional.softmax
 SDPA_HAS_GQA = "enable_gqa" in scaled_dot_product_attention.__doc__
 
 # Fix new HF's inference code
-def _fast_prepare_inputs_for_generation(self, input_ids, attention_mask=None, **kwargs,):
+def _fast_prepare_inputs_for_generation(self, input_ids: torch.LongTensor, attention_mask: Optional[torch.Tensor]=None, **kwargs,) -> Dict[str, Any]:
+    """
+    Prepares input tensors for generation with KV cache optimization.
+    
+    Args:
+        self: The model instance
+        input_ids (`torch.LongTensor`): Input token IDs
+        attention_mask (`Optional[torch.Tensor]`): Attention mask
+        **kwargs: Additional generation arguments
+    
+    Returns:
+        `Dict[str, Any]`: Dictionary containing prepared inputs
+    """
     past_key_values = kwargs.get("past_key_values", None)
     if past_key_values is not None:
         # Check for uninitialized DynamicCache
@@ -147,7 +179,16 @@ def _fast_prepare_inputs_for_generation(self, input_ids, attention_mask=None, **
 pass
 
 
-def fix_prepare_inputs_for_generation(module):
+def fix_prepare_inputs_for_generation(module: LlamaForCausalLM) -> None:
+    """
+    Patches the prepare_inputs_for_generation method of a LlamaForCausalLM model.
+    
+    Args:
+        module (`LlamaForCausalLM`): The model to patch
+    
+    Returns:
+        None
+    """
     # Fix prepare_inputs_for_generation
     if hasattr(module, "prepare_inputs_for_generation"):
         module.prepare_inputs_for_generation = _fast_prepare_inputs_for_generation
@@ -159,10 +200,10 @@ def LlamaAttention_fast_forward_inference(
     self,
     hidden_states:  torch.Tensor,
     past_key_value: Optional[Tuple[torch.Tensor]],
-    position_ids,
-    do_prefill = False,
-    attention_mask = None,
-):
+    position_ids: torch.LongTensor,
+    do_prefill: bool                       = False,
+    attention_mask: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     """
         https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L406
         Fast inference using KV cache.
@@ -322,7 +363,19 @@ pass
 
 
 torch_nn_functional_silu = torch.nn.functional.silu
-def fast_swiglu_inference(self, X, temp_gate = None, temp_up = None):
+def fast_swiglu_inference(self, X: torch.Tensor, temp_gate: Optional[torch.Tensor] = None, temp_up: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """
+    Performs fast SWiGLU activation during inference.
+    
+    Args:
+        self: The MLP module instance
+        X (`torch.Tensor`): Input tensor
+        temp_gate (`Optional[torch.Tensor]`): Temporary buffer for gate projection
+        temp_up (`Optional[torch.Tensor]`): Temporary buffer for up projection
+    
+    Returns:
+        `torch.Tensor`: Output tensor
+    """
     # gate = self.gate_proj(X)
     # up   = self.up_proj(X)
     bsz, _, hd = X.shape
@@ -341,7 +394,20 @@ pass
 
 torch_square = torch.square
 torch_mean   = torch.mean
-def fast_rms_layernorm_inference(self, X, XX = None, XX2 = None, variance = None):
+def fast_rms_layernorm_inference(self, X: torch.Tensor, XX: Optional[torch.Tensor] = None, XX2: Optional[torch.Tensor] = None, variance: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """
+    Performs fast RMS layer normalization during inference.
+    
+    Args:
+        self: The layer norm module instance
+        X (`torch.Tensor`): Input tensor
+        XX (`Optional[torch.Tensor]`): Temporary buffer for float32 conversion
+        XX2 (`Optional[torch.Tensor]`): Temporary buffer for squared values
+        variance (`Optional[torch.Tensor]`): Temporary buffer for variance
+    
+    Returns:
+        `torch.Tensor`: Normalized output tensor
+    """
     old_dtype = X.dtype
     if XX is None:
         XX = X.to(torch.float32)
@@ -361,7 +427,18 @@ def fast_rms_layernorm_inference(self, X, XX = None, XX2 = None, variance = None
 pass
 
 
-def fast_rms_layernorm_inference_gemma(self, X, out_weight = None):
+def fast_rms_layernorm_inference_gemma(self, X: torch.Tensor, out_weight: Optional[torch.Tensor] = None) -> torch.Tensor:
+    """
+    Gemma-specific fast RMS layer normalization during inference.
+    
+    Args:
+        self: The layer norm module instance
+        X (`torch.Tensor`): Input tensor
+        out_weight (`Optional[torch.Tensor]`): Temporary buffer for weight adjustment
+    
+    Returns:
+        `torch.Tensor`: Normalized output tensor
+    """
     XX = X.to(torch.float32)
     variance = XX.square().mean(-1, keepdim = True)
     variance += self.variance_epsilon
@@ -381,7 +458,17 @@ pass
 
 # Normal layernorm with mean removal
 @torch.compile(fullgraph = False, dynamic = True, options = torch_compile_options)
-def fast_layernorm_compiled(layernorm, X):
+def fast_layernorm_compiled(layernorm: LlamaRMSNorm, X: torch.Tensor) -> torch.Tensor:
+    """
+    Compiled version of layer normalization for better performance.
+    
+    Args:
+        layernorm (`LlamaRMSNorm`): The layer norm module
+        X (`torch.Tensor`): Input tensor
+    
+    Returns:
+        `torch.Tensor`: Normalized output tensor
+    """
     old_dtype = X.dtype
     X = X.float()
     mean = X.mean(-1, keepdim = True)
@@ -397,16 +484,35 @@ pass
 def LlamaAttention_fast_forward(
     self,
     hidden_states:       torch.Tensor,
-    causal_mask:         Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:      Optional[torch.Tensor] = None,
-    position_ids:        Optional[torch.LongTensor] = None,
-    past_key_value:      Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:   bool = False,
-    use_cache:           bool = False,
-    padding_mask:        Optional[torch.LongTensor] = None,
+    causal_mask:         Optional[BlockDiagonalCausalMask]           = None,
+    attention_mask:      Optional[torch.Tensor]                      = None,
+    position_ids:        Optional[torch.LongTensor]                  = None,
+    past_key_value:      Optional[Tuple[torch.Tensor]]               = None,
+    output_attentions:   bool                                        = False,
+    use_cache:           bool                                        = False,
+    padding_mask:        Optional[torch.LongTensor]                  = None,
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    """
+    Fast forward pass for Llama attention with various optimizations.
+    
+    Args:
+        self: The attention module instance
+        hidden_states (`torch.Tensor`): Input hidden states
+        causal_mask (`Optional[BlockDiagonalCausalMask]`): Causal attention mask
+        attention_mask (`Optional[torch.Tensor]`): Attention mask
+        position_ids (`Optional[torch.LongTensor]`): Position IDs
+        past_key_value (`Optional[Tuple[torch.Tensor]]`): Past key-value cache
+        output_attentions (`bool`): Whether to output attention weights
+        use_cache (`bool`): Whether to use KV cache
+        padding_mask (`Optional[torch.LongTensor]`): Padding mask
+        position_embeddings (`Optional[Tuple[torch.Tensor, torch.Tensor]]`): Position embeddings
+        *args, **kwargs: Additional arguments
+    
+    Returns:
+        `Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]`: Tuple containing output, attention weights, and present KV cache
+    """
     
     # Clear inference
     if hasattr(self, "paged_attention"):
@@ -526,13 +632,13 @@ pass
 def LlamaDecoderLayer_fast_forward(
     self,
     hidden_states:       torch.Tensor,
-    causal_mask          = None,
-    attention_mask:      Optional[torch.Tensor] = None,
-    position_ids:        Optional[torch.LongTensor] = None,
-    past_key_value:      Optional[Tuple[torch.Tensor]] = None,
-    output_attentions:   Optional[bool] = False,
-    use_cache:           Optional[bool] = False,
-    padding_mask:        Optional[torch.LongTensor] = None,
+    causal_mask: Optional[BlockDiagonalCausalMask]                   = None,
+    attention_mask:      Optional[torch.Tensor]                      = None,
+    position_ids:        Optional[torch.LongTensor]                  = None,
+    past_key_value:      Optional[Tuple[torch.Tensor]]               = None,
+    output_attentions:   Optional[bool]                              = False,
+    use_cache:           Optional[bool]                              = False,
+    padding_mask:        Optional[torch.LongTensor]                  = None,
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     *args, **kwargs,
 ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
@@ -615,16 +721,36 @@ def LlamaModel_fast_forward(
     self,
     input_ids:            torch.LongTensor,
     causal_mask:          Optional[BlockDiagonalCausalMask] = None,
-    attention_mask:       Optional[torch.Tensor] = None,
-    position_ids:         Optional[torch.LongTensor] = None,
+    attention_mask:       Optional[torch.Tensor]            = None,
+    position_ids:         Optional[torch.LongTensor]        = None,
     past_key_values:      Optional[List[torch.FloatTensor]] = None,
-    inputs_embeds:        Optional[torch.FloatTensor] = None,
-    use_cache:            Optional[bool] = None,
-    output_attentions:    Optional[bool] = None,
-    output_hidden_states: Optional[bool] = None,
-    return_dict:          Optional[bool] = None,
+    inputs_embeds:        Optional[torch.FloatTensor]       = None,
+    use_cache:            Optional[bool]                    = None,
+    output_attentions:    Optional[bool]                    = None,
+    output_hidden_states: Optional[bool]                    = None,
+    return_dict:          Optional[bool]                    = None,
     *args, **kwargs,
 ) -> Union[Tuple, BaseModelOutputWithPast]:
+    """
+    Fast forward pass for Llama model with various optimizations.
+    
+    Args:
+        self: The model instance
+        input_ids (`torch.LongTensor`): Input token IDs
+        causal_mask (`Optional[BlockDiagonalCausalMask]`): Causal attention mask
+        attention_mask (`Optional[torch.Tensor]`): Attention mask
+        position_ids (`Optional[torch.LongTensor]`): Position IDs
+        past_key_values (`Optional[List[torch.FloatTensor]]`): Past key-value caches
+        inputs_embeds (`Optional[torch.FloatTensor]`): Input embeddings
+        use_cache (`Optional[bool]`): Whether to use KV cache
+        output_attentions (`Optional[bool]`): Whether to output attention weights
+        output_hidden_states (`Optional[bool]`): Whether to output hidden states
+        return_dict (`Optional[bool]`): Whether to return as dict
+        *args, **kwargs: Additional arguments
+    
+    Returns:
+        `Union[Tuple, BaseModelOutputWithPast]`: Model outputs
+    """
     
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
     assert(output_attentions is False)
@@ -949,7 +1075,17 @@ pass
 
 
 # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L825
-def _LlamaModel_fast_forward_inference(attention_fast_forward_inference=LlamaAttention_fast_forward_inference, mlp_fast_forward_inference=fast_swiglu_inference):
+def _LlamaModel_fast_forward_inference(attention_fast_forward_inference: Callable=LlamaAttention_fast_forward_inference, mlp_fast_forward_inference: Callable=fast_swiglu_inference) -> Callable:
+    """
+    Factory function that creates a custom fast inference forward pass.
+    
+    Args:
+        attention_fast_forward_inference (`Callable`): Custom attention forward function
+        mlp_fast_forward_inference (`Callable`): Custom MLP forward function
+    
+    Returns:
+        `Callable`: Custom forward function for inference
+    """
     # This makes the attention and MLP customisable.
     # Now for models like qwen3 or cohere which use custom attention operations, we can use this function
     def LlamaModel_fast_forward_inference_custom(
@@ -1048,22 +1184,31 @@ def _LlamaModel_fast_forward_inference(attention_fast_forward_inference=LlamaAtt
 # For ensuring backwards compatibility, we create LlamaModel_fast_forward_inference that is consumed by other models
 LlamaModel_fast_forward_inference = _LlamaModel_fast_forward_inference()
 
-def CausalLM_fast_forward(fast_forward_inference):
+def CausalLM_fast_forward(fast_forward_inference: Callable) -> Callable:
+    """
+    Factory function that creates a custom fast forward pass for causal LM.
+    
+    Args:
+        fast_forward_inference (`Callable`): Custom forward function
+    
+    Returns:
+        `Callable`: Custom forward function for causal LM
+    """
     def _CausalLM_fast_forward(
         self,
-        input_ids: torch.LongTensor = None,
-        causal_mask: Optional[BlockDiagonalCausalMask] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
+        input_ids: torch.LongTensor                        = None,
+        causal_mask: Optional[BlockDiagonalCausalMask]     = None,
+        attention_mask: Optional[torch.Tensor]             = None,
+        position_ids: Optional[torch.LongTensor]           = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        num_logits_to_keep: Optional[int] = 0,
-        logits_to_keep: Optional[int] = 0,
+        inputs_embeds: Optional[torch.FloatTensor]         = None,
+        labels: Optional[torch.LongTensor]                 = None,
+        use_cache: Optional[bool]                          = None,
+        output_attentions: Optional[bool]                  = None,
+        output_hidden_states: Optional[bool]               = None,
+        return_dict: Optional[bool]                        = None,
+        num_logits_to_keep: Optional[int]                  = 0,
+        logits_to_keep: Optional[int]                      = 0,
         *args, **kwargs,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         if past_key_values is not None:
@@ -1228,19 +1373,40 @@ pass
 @torch._disable_dynamo
 def PeftModelForCausalLM_fast_forward(
     self,
-    input_ids = None,
-    causal_mask = None,
-    attention_mask = None,
-    inputs_embeds = None,
-    labels = None,
-    output_attentions = None,
-    output_hidden_states = None,
-    return_dict = None,
-    task_ids = None,
-    num_logits_to_keep = 0,
-    logits_to_keep = 0,
+    input_ids: Optional[torch.LongTensor]          = None,
+    causal_mask: Optional[BlockDiagonalCausalMask] = None,
+    attention_mask: Optional[torch.Tensor]         = None,
+    inputs_embeds: Optional[torch.FloatTensor]     = None,
+    labels: Optional[torch.LongTensor]             = None,
+    output_attentions: Optional[bool]              = None,
+    output_hidden_states: Optional[bool]           = None,
+    return_dict: Optional[bool]                    = None,
+    task_ids: Optional[torch.LongTensor]           = None,
+    num_logits_to_keep: int                        = 0,
+    logits_to_keep: int                            = 0,
     **kwargs,
-):
+) -> Union[Tuple, CausalLMOutputWithPast]:
+    """
+    Fast forward pass for PEFT Causal LM models.
+    
+    Args:
+        self: The model instance
+        input_ids (`Optional[torch.LongTensor]`): Input token IDs
+        causal_mask (`Optional[BlockDiagonalCausalMask]`): Causal attention mask
+        attention_mask (`Optional[torch.Tensor]`): Attention mask
+        inputs_embeds (`Optional[torch.FloatTensor]`): Input embeddings
+        labels (`Optional[torch.LongTensor]`): Target labels
+        output_attentions (`Optional[bool]`): Whether to output attention weights
+        output_hidden_states (`Optional[bool]`): Whether to output hidden states
+        return_dict (`Optional[bool]`): Whether to return as dict
+        task_ids (`Optional[torch.LongTensor]`): Task IDs for multi-task learning
+        num_logits_to_keep (`int`): Number of logits to keep
+        logits_to_keep (`int`): Logits to keep
+        **kwargs: Additional arguments
+    
+    Returns:
+        `Union[Tuple, CausalLMOutputWithPast]`: Model outputs
+    """
     return self.base_model(
         input_ids = input_ids,
         causal_mask = causal_mask,
@@ -1263,11 +1429,27 @@ pass
 # https://github.com/huggingface/transformers/pull/27931
 # https://github.com/huggingface/transformers/blob/v4.37.2/src/transformers/models/llama/modeling_llama.py
 class LlamaRotaryEmbedding(torch.nn.Module):
+    """
+    Implements rotary positional embeddings for Llama models.
+    
+    Args:
+        dim (`Optional[int]`): Dimension of embeddings
+        max_position_embeddings (`int`): Maximum sequence length
+        base (`int`): Base for frequency calculation
+        device (`Optional[str]`): Device to place tensors on
+        config (`Optional[Any]`): Model config for initialization
+    
+    Methods:
+        _set_cos_sin_cache: Initializes cosine/sine cache
+        forward: Computes embeddings for given positions
+        get_cached: Returns cached embeddings
+        extend_rope_embedding: Extends embeddings for longer sequences
+    """
     # Fixes https://github.com/huggingface/transformers/pull/28837
     # https://github.com/microsoft/DeepSpeed/issues/4932
     # The precision of RoPE buffers is not correct, so we cast to int64.
-    def __init__(self, dim = None, max_position_embeddings=2048, base=10000, device=None,
-        config = None, # [TODO] Hack to pass in config - need to remove later
+    def __init__(self, dim: Optional[int] = None, max_position_embeddings: int=2048, base: int=10000, device: Optional[str]=None,
+        config: Optional[Any] = None, # [TODO] Hack to pass in config - need to remove later
     ):
         super().__init__()
         if config is not None:
@@ -1290,7 +1472,18 @@ class LlamaRotaryEmbedding(torch.nn.Module):
         self._set_cos_sin_cache(seq_len=self.current_rope_size, device=device, dtype=torch.get_default_dtype())
     pass
 
-    def _set_cos_sin_cache(self, seq_len, device, dtype):
+    def _set_cos_sin_cache(self, seq_len: int, device: str, dtype: torch.dtype) -> None:
+        """
+        Initializes the cosine/sine cache for rotary embeddings.
+        
+        Args:
+            seq_len (`int`): Sequence length to initialize for
+            device (`str`): Device to place tensors on
+            dtype (`torch.dtype`): Data type for tensors
+        
+        Returns:
+            None
+        """
         # Note: on the original Llama codebase, these tensors are created on the target device (and not on CPU) and
         # in FP32. They are applied (multiplied) in FP32 as well.
         self.current_rope_size = seq_len
@@ -1306,7 +1499,18 @@ class LlamaRotaryEmbedding(torch.nn.Module):
         self.register_buffer("sin_cached", emb.sin().to(dtype=dtype, device=device, non_blocking=True), persistent=False)
     pass
 
-    def forward(self, x, position_ids=None, seq_len=None):
+    def forward(self, x: torch.Tensor, position_ids: Optional[torch.LongTensor]=None, seq_len: Optional[int]=None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes rotary embeddings for given positions.
+        
+        Args:
+            x (`torch.Tensor`): Input tensor
+            position_ids (`Optional[torch.LongTensor]`): Position IDs
+            seq_len (`Optional[int]`): Sequence length
+        
+        Returns:
+            `Tuple[torch.Tensor, torch.Tensor]`: Tuple of cosine/sine embeddings
+        """
         # x: [bs, num_attention_heads, seq_len, head_size]
         if seq_len > self.current_rope_size:
             self._set_cos_sin_cache(seq_len=seq_len, device=x.device, dtype=x.dtype)
@@ -1317,11 +1521,30 @@ class LlamaRotaryEmbedding(torch.nn.Module):
         )
     pass
 
-    def get_cached(self, seq_len = None):
+    def get_cached(self, seq_len: Optional[int] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns cached cosine/sine embeddings.
+        
+        Args:
+            seq_len (`Optional[int]`): Sequence length
+        
+        Returns:
+            `Tuple[torch.Tensor, torch.Tensor]`: Tuple of cosine/sine embeddings
+        """
         return self.cos_cached, self.sin_cached
     pass
 
-    def extend_rope_embedding(self, x, seq_len):
+    def extend_rope_embedding(self, x: torch.Tensor, seq_len: int) -> None:
+        """
+        Extends embeddings to support longer sequences.
+        
+        Args:
+            x (`torch.Tensor`): Input tensor
+            seq_len (`int`): Desired sequence length
+        
+        Returns:
+            None
+        """
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = ((seq_len // 8192) + ((seq_len % 8192) != 0)) * 8192
@@ -1335,14 +1558,25 @@ class LlamaLinearScalingRotaryEmbedding(LlamaRotaryEmbedding):
     # Fixes https://github.com/huggingface/transformers/pull/28837
     # https://github.com/microsoft/DeepSpeed/issues/4932
     # The precision of RoPE buffers is not correct, so we cast to int64.
-    def __init__(self, dim = None, max_position_embeddings=2048, base=10000, device=None, scaling_factor=1.0,
-        config = None, # [TODO] Hack to pass in config - need to remove later
+    def __init__(self, dim: Optional[int] = None, max_position_embeddings: int=2048, base: int=10000, device: Optional[str]=None, scaling_factor: float=1.0,
+        config: Optional[Any] = None, # [TODO] Hack to pass in config - need to remove later
     ):
         self.scaling_factor = scaling_factor
         super().__init__(dim = dim, max_position_embeddings = max_position_embeddings, base = base, device = device, config = config)
     pass
 
-    def _set_cos_sin_cache(self, seq_len, device, dtype):
+    def _set_cos_sin_cache(self, seq_len: int, device: str, dtype: torch.dtype) -> None:
+        """
+        Initializes cosine/sine cache with linear scaling.
+        
+        Args:
+            seq_len (`int`): Sequence length
+            device (`str`): Device to place tensors on
+            dtype (`torch.dtype`): Data type for tensors
+        
+        Returns:
+            None
+        """
         self.current_rope_size = seq_len
         inv_freq = 1.0 / (
             self.base ** (torch.arange(0, self.dim, 2, dtype=torch.int64, device="cpu").float() / self.dim)
@@ -1362,8 +1596,25 @@ pass
 # See https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/rotary_embedding.py#L736
 # For Llama 3.1
 class LlamaExtendedRotaryEmbedding(torch.nn.Module):
-    def __init__(self, dim = None, max_position_embeddings=2048, base=10000, device=None,
-        config = None, # [TODO] Hack to pass in config - need to remove later
+    """
+    Extended rotary embeddings with custom scaling for Llama 3.1.
+    
+    Args:
+        dim (`Optional[int]`): Dimension of embeddings
+        max_position_embeddings (`int`): Maximum sequence length
+        base (`int`): Base for frequency calculation
+        device (`Optional[str]`): Device to place tensors on
+        config (`Optional[Any]`): Model config for initialization
+    
+    Methods:
+        apply_scaling: Applies custom frequency scaling
+        _set_cos_sin_cache: Initializes cache
+        forward: Computes embeddings
+        get_cached: Returns cached embeddings
+        extend_rope_embedding: Extends for longer sequences
+    """
+    def __init__(self, dim: Optional[int] = None, max_position_embeddings: int=2048, base: int=10000, device: Optional[str]=None,
+        config: Optional[Any] = None, # [TODO] Hack to pass in config - need to remove later
     ):
         super().__init__()
         if config is not None:
@@ -1392,7 +1643,18 @@ class LlamaExtendedRotaryEmbedding(torch.nn.Module):
         self._set_cos_sin_cache(seq_len=self.current_rope_size, device=device, dtype=torch.get_default_dtype())
     pass
 
-    def _set_cos_sin_cache(self, seq_len, device, dtype):
+    def _set_cos_sin_cache(self, seq_len: int, device: str, dtype: torch.dtype) -> None:
+        """
+        Initializes cosine/sine cache with extended scaling.
+        
+        Args:
+            seq_len (`int`): Sequence length
+            device (`str`): Device to place tensors on
+            dtype (`torch.dtype`): Data type for tensors
+        
+        Returns:
+            None
+        """
         # Note: on the original Llama codebase, these tensors are created on the target device (and not on CPU) and
         # in FP32. They are applied (multiplied) in FP32 as well.
         self.current_rope_size = seq_len
@@ -1407,7 +1669,16 @@ class LlamaExtendedRotaryEmbedding(torch.nn.Module):
     pass
 
     # From https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/api/model.py#L41
-    def apply_scaling(self, freqs: torch.Tensor):
+    def apply_scaling(self, freqs: torch.Tensor) -> torch.Tensor:
+        """
+        Applies custom frequency scaling for extended embeddings.
+        
+        Args:
+            freqs (`torch.Tensor`): Input frequencies
+        
+        Returns:
+            `torch.Tensor`: Scaled frequencies
+        """
         # Values obtained from grid search
         scale_factor = 8
         low_freq_factor = 1
@@ -1432,7 +1703,18 @@ class LlamaExtendedRotaryEmbedding(torch.nn.Module):
         return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)
     pass
 
-    def forward(self, x, position_ids=None, seq_len=None):
+    def forward(self, x: torch.Tensor, position_ids: Optional[torch.LongTensor]=None, seq_len: Optional[int]=None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes extended rotary embeddings.
+        
+        Args:
+            x (`torch.Tensor`): Input tensor
+            position_ids (`Optional[torch.LongTensor]`): Position IDs
+            seq_len (`Optional[int]`): Sequence length
+        
+        Returns:
+            `Tuple[torch.Tensor, torch.Tensor]`: Tuple of cosine/sine embeddings
+        """
         # x: [bs, num_attention_heads, seq_len, head_size]
         if seq_len > self.current_rope_size:
             self._set_cos_sin_cache(seq_len=seq_len, device=x.device, dtype=x.dtype)
@@ -1443,11 +1725,30 @@ class LlamaExtendedRotaryEmbedding(torch.nn.Module):
         )
     pass
 
-    def get_cached(self, seq_len = None):
+    def get_cached(self, seq_len: Optional[int] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns cached extended embeddings.
+        
+        Args:
+            seq_len (`Optional[int]`): Sequence length
+        
+        Returns:
+            `Tuple[torch.Tensor, torch.Tensor]`: Tuple of cosine/sine embeddings
+        """
         return self.cos_cached, self.sin_cached
     pass
 
-    def extend_rope_embedding(self, x, seq_len):
+    def extend_rope_embedding(self, x: torch.Tensor, seq_len: int) -> None:
+        """
+        Extends embeddings for longer sequences.
+        
+        Args:
+            x (`torch.Tensor`): Input tensor
+            seq_len (`int`): Desired sequence length
+        
+        Returns:
+            None
+        """
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = ((seq_len // 8192) + ((seq_len % 8192) != 0)) * 8192
@@ -1457,16 +1758,35 @@ pass
 
 
 class LongRopeRotaryEmbedding(torch.nn.Module):
+    """
+    LongRoPE implementation for very long sequences (e.g. Phi 3.5 128K).
+    
+    Args:
+        dim (`Optional[int]`): Dimension of embeddings
+        max_position_embeddings (`int`): Maximum sequence length
+        original_max_position_embeddings (`int`): Original max length
+        base (`int`): Base for frequency calculation
+        short_factor (`Optional[float]`): Scaling for short sequences
+        long_factor (`Optional[float]`): Scaling for long sequences
+        device (`Optional[str]`): Device to place tensors on
+        config (`Optional[Any]`): Model config for initialization
+    
+    Methods:
+        _set_cos_sin_cache: Initializes cache
+        forward: Computes embeddings
+        get_cached: Returns cached embeddings
+        extend_rope_embedding: Extends for longer sequences
+    """
     # For Phi 3.5 128K https://huggingface.co/microsoft/Phi-3.5-mini-instruct/blob/main/modeling_phi3.py
     def __init__(self,
-        dim = None,
-        max_position_embeddings = 131072,
-        original_max_position_embeddings = 4096,
-        base = 10000,
-        short_factor = None,
-        long_factor  = None,
-        device = None,
-        config = None, # [TODO] Hack to pass in config - need to remove later
+        dim: Optional[int]                    = None,
+        max_position_embeddings: int          = 131072,
+        original_max_position_embeddings: int = 4096,
+        base: int                             = 10000,
+        short_factor: Optional[float]         = None,
+        long_factor: Optional[float]          = None,
+        device: Optional[str]                 = None,
+        config: Optional[Any]                 = None, # [TODO] Hack to pass in config - need to remove later
     ):
         super().__init__()
         assert(short_factor is not None)
@@ -1523,7 +1843,18 @@ class LongRopeRotaryEmbedding(torch.nn.Module):
         self.register_buffer("short_sin_cached", sin_cached, persistent=False)
     pass
 
-    def _set_cos_sin_cache(self, seq_len, device, dtype):
+    def _set_cos_sin_cache(self, seq_len: int, device: str, dtype: torch.dtype) -> None:
+        """
+        Initializes cosine/sine cache for long sequences.
+        
+        Args:
+            seq_len (`int`): Sequence length
+            device (`str`): Device to place tensors on
+            dtype (`torch.dtype`): Data type for tensors
+        
+        Returns:
+            None
+        """
         # Note: on the original Llama codebase, these tensors are created on the target device (and not on CPU) and
         # in FP32. They are applied (multiplied) in FP32 as well.
         self.current_rope_size = seq_len
@@ -1538,7 +1869,18 @@ class LongRopeRotaryEmbedding(torch.nn.Module):
         self.register_buffer("long_sin_cached", sin_cached, persistent=False)
     pass
 
-    def forward(self, x, position_ids=None, seq_len=None):
+    def forward(self, x: torch.Tensor, position_ids: Optional[torch.LongTensor]=None, seq_len: Optional[int]=None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes long sequence rotary embeddings.
+        
+        Args:
+            x (`torch.Tensor`): Input tensor
+            position_ids (`Optional[torch.LongTensor]`): Position IDs
+            seq_len (`Optional[int]`): Sequence length
+        
+        Returns:
+            `Tuple[torch.Tensor, torch.Tensor]`: Tuple of cosine/sine embeddings
+        """
         # x: [bs, num_attention_heads, seq_len, head_size]
         if seq_len > self.current_rope_size:
             self._set_cos_sin_cache(seq_len=seq_len, device=x.device, dtype=x.dtype)
@@ -1556,13 +1898,32 @@ class LongRopeRotaryEmbedding(torch.nn.Module):
         pass
     pass
 
-    def get_cached(self, seq_len = None):
+    def get_cached(self, seq_len: Optional[int] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns cached long sequence embeddings.
+        
+        Args:
+            seq_len (`Optional[int]`): Sequence length
+        
+        Returns:
+            `Tuple[torch.Tensor, torch.Tensor]`: Tuple of cosine/sine embeddings
+        """
         if seq_len < self.original_max_position_embeddings:
             return self.short_cos_cached, self.short_sin_cached
         return self.long_cos_cached, self.long_sin_cached
     pass
 
-    def extend_rope_embedding(self, x, seq_len):
+    def extend_rope_embedding(self, x: torch.Tensor, seq_len: int) -> None:
+        """
+        Extends embeddings for very long sequences.
+        
+        Args:
+            x (`torch.Tensor`): Input tensor
+            seq_len (`int`): Desired sequence length
+        
+        Returns:
+            None
+        """
         if seq_len <= self.current_rope_size: return
         # Iteratively grow by increments of 8192
         self.current_rope_size = ((seq_len // 8192) + ((seq_len % 8192) != 0)) * 8192
@@ -1576,6 +1937,17 @@ def unsloth_fast_generate(
     *args,
     **kwargs,
 ):
+    """
+    Optimized generation function for Unsloth models.
+    
+    Args:
+        self: The model instance
+        *args: Generation arguments
+        **kwargs: Generation keyword arguments
+    
+    Returns:
+        Generated output
+    """
     FastLlamaModel.for_inference(self)
 
     dtype = _get_dtype(self.config.torch_dtype)
@@ -1630,9 +2002,27 @@ pass
 
 
 class FastLlamaModel:
+    """
+    Main class implementing fast Llama model optimizations.
+    
+    Methods:
+        pre_patch: Applies initial patches
+        from_pretrained: Loads pretrained model with optimizations
+        post_patch: Applies post-load patches
+        get_peft_model: Gets PEFT-adapted model
+        patch_peft_model: Optimizes PEFT model
+        for_inference: Configures model for inference
+        for_training: Configures model for training
+    """
 
     @staticmethod
-    def pre_patch():
+    def pre_patch() -> None:
+        """
+        Applies initial optimization patches to model classes.
+        
+        Returns:
+            None
+        """
         init_name, function = patch_llama_rope_scaling(
             model_name           = "llama",
             rope_module          = LlamaRotaryEmbedding,
@@ -1668,26 +2058,52 @@ class FastLlamaModel:
 
     @staticmethod
     def from_pretrained(
-        model_name        = "unsloth/llama-3-8b-bnb-4bit",
-        max_seq_length    = None,
-        dtype             = None,
-        load_in_4bit      = True,
-        token             = None,
-        device_map        = "sequential",
-        rope_scaling      = None,
-        fix_tokenizer     = True,
-        model_patcher     = None,
-        tokenizer_name    = None,
-        trust_remote_code = False,
+        model_name: str                        = "unsloth/llama-3-8b-bnb-4bit",
+        max_seq_length: Optional[int]          = None,
+        dtype: Optional[torch.dtype]           = None,
+        load_in_4bit: bool                     = True,
+        token: Optional[str]                   = None,
+        device_map: str                        = "sequential",
+        rope_scaling: Optional[Dict[str, Any]] = None,
+        fix_tokenizer: bool                    = True,
+        model_patcher: Optional[Type]          = None,
+        tokenizer_name: Optional[str]          = None,
+        trust_remote_code: bool                = False,
 
-        fast_inference    = False, # uses vLLM
-        gpu_memory_utilization = 0.5,
-        float8_kv_cache   = False,
-        random_state      = 3407,
-        max_lora_rank     = 16,
-        disable_log_stats = False,
+        fast_inference: bool                   = False, # uses vLLM
+        gpu_memory_utilization: float          = 0.5,
+        float8_kv_cache: bool                  = False,
+        random_state: int                      = 3407,
+        max_lora_rank: int                     = 16,
+        disable_log_stats: bool                = False,
         **kwargs,
-    ):
+    ) -> Tuple[Any, Any]:
+        """
+        Loads a pretrained model with Unsloth optimizations.
+        
+        Args:
+            model_name (`str`): Model identifier
+            max_seq_length (`Optional[int]`): Max sequence length
+            dtype (`Optional[torch.dtype]`): Data type
+            load_in_4bit (`bool`): Whether to use 4-bit quantization
+            token (`Optional[str]`): HuggingFace token
+            device_map (`str`): Device placement strategy
+            rope_scaling (`Optional[Dict[str, Any]]`): RoPE scaling config
+            fix_tokenizer (`bool`): Whether to fix tokenizer
+            model_patcher (`Optional[Type]`): Custom model patcher
+            tokenizer_name (`Optional[str]`): Custom tokenizer name
+            trust_remote_code (`bool`): Trust remote code
+            fast_inference (`bool`): Use vLLM for inference
+            gpu_memory_utilization (`float`): GPU memory limit
+            float8_kv_cache (`bool`): Use FP8 KV cache
+            random_state (`int`): Random seed
+            max_lora_rank (`int`): Max LoRA rank
+            disable_log_stats (`bool`): Disable vLLM stats
+            **kwargs: Additional loading arguments
+        
+        Returns:
+            `Tuple[Any, Any]`: Tuple of model and tokenizer
+        """
         os.environ["UNSLOTH_USE_NEW_MODEL"] = "0"
         if trust_remote_code:
             if fast_inference:
@@ -2040,7 +2456,17 @@ class FastLlamaModel:
 
 
     @staticmethod
-    def post_patch(model, tokenizer):
+    def post_patch(model, tokenizer) -> Tuple[Any, Any]:
+        """
+        Applies post-load optimization patches.
+        
+        Args:
+            model: The loaded model
+            tokenizer: The loaded tokenizer
+        
+        Returns:
+            `Tuple[Any, Any]`: Tuple of patched model and tokenizer
+        """
         model, tokenizer = patch_model_and_tokenizer(model, tokenizer, downcast_rope = True)
         return model, tokenizer
     pass
@@ -2049,24 +2475,49 @@ class FastLlamaModel:
     @staticmethod
     def get_peft_model(
         model,
-        r                   = 16,
-        target_modules      = ["q_proj", "k_proj", "v_proj", "o_proj",
+        r: int                                   = 16,
+        target_modules: List[str]                = ["q_proj", "k_proj", "v_proj", "o_proj",
                                "gate_proj", "up_proj", "down_proj"],
-        lora_alpha          = 16,
-        lora_dropout        = 0,
-        bias                = "none",
-        layers_to_transform = None,
-        layers_pattern      = None,
-        use_gradient_checkpointing = True,
-        random_state        = 3407,
-        max_seq_length      = 2048, # not used anymore
-        use_rslora          = False,
-        modules_to_save     = None,
-        init_lora_weights   = True,
-        loftq_config        = {},
-        temporary_location  = "_unsloth_temporary_saved_buffers",
+        lora_alpha: int                          = 16,
+        lora_dropout: float                      = 0,
+        bias: str                                = "none",
+        layers_to_transform: Optional[List[int]] = None,
+        layers_pattern: Optional[str]            = None,
+        use_gradient_checkpointing: bool         = True,
+        random_state: int                        = 3407,
+        max_seq_length: int                      = 2048, # not used anymore
+        use_rslora: bool                         = False,
+        modules_to_save: Optional[List[str]]     = None,
+        init_lora_weights: Union[bool, str]      = True,
+        loftq_config: Dict[str, Any]             = {},
+        temporary_location: str                  = "_unsloth_temporary_saved_buffers",
         **kwargs,
     ):
+        """
+        Creates a PEFT-adapted version of the model.
+        
+        Args:
+            model: Base model
+            r (`int`): LoRA rank
+            target_modules (`List[str]`): Modules to adapt
+            lora_alpha (`int`): LoRA alpha
+            lora_dropout (`float`): LoRA dropout
+            bias (`str`): Bias type
+            layers_to_transform (`Optional[List[int]]`): Layers to adapt
+            layers_pattern (`Optional[str]`): Layer pattern
+            use_gradient_checkpointing (`bool`): Use gradient checkpointing
+            random_state (`int`): Random seed
+            max_seq_length (`int`): Max sequence length
+            use_rslora (`bool`): Use RS-LoRA
+            modules_to_save (`Optional[List[str]]`): Modules to save
+            init_lora_weights (`Union[bool, str]`): Weight initialization
+            loftq_config (`Dict[str, Any]`): LoftQ config
+            temporary_location (`str`): Temp save location
+            **kwargs: Additional PEFT arguments
+        
+        Returns:
+            PEFT-adapted model
+        """
         if os.environ.get("UNSLOTH_USE_NEW_MODEL", "0") == "1":
             # Check for other PEFT args in kwargs
             for (peft_arg, flag) in (
@@ -2507,8 +2958,18 @@ class FastLlamaModel:
     @staticmethod
     def patch_peft_model(
         model,
-        use_gradient_checkpointing = True,
+        use_gradient_checkpointing: bool = True,
     ):
+        """
+        Optimizes a PEFT model with custom forward passes.
+        
+        Args:
+            model: PEFT model
+            use_gradient_checkpointing (`bool`): Use gradient checkpointing
+        
+        Returns:
+            Optimized PEFT model
+        """
         if os.environ.get("UNSLOTH_USE_NEW_MODEL", "0") == "1":
             return FastBaseModel.patch_peft_model(
                 model = model,
@@ -2722,6 +3183,15 @@ class FastLlamaModel:
 
     @staticmethod
     def for_inference(model):
+        """
+        Configures model for inference mode.
+        
+        Args:
+            model: The model to configure
+        
+        Returns:
+            Model in inference mode
+        """
         if not hasattr(model, "parameters"):
             raise TypeError("Unsloth: I think you're passing a tokenizer, not the model to for_inference!")
 
@@ -2753,7 +3223,17 @@ class FastLlamaModel:
 
 
     @staticmethod
-    def for_training(model, use_gradient_checkpointing = True):
+    def for_training(model, use_gradient_checkpointing: bool = True):
+        """
+        Configures model for training mode.
+        
+        Args:
+            model: The model to configure
+            use_gradient_checkpointing (`bool`): Use gradient checkpointing
+        
+        Returns:
+            Model in training mode
+        """
         if not hasattr(model, "parameters"):
             raise TypeError("Unsloth: I think you're passing a tokenizer, not the model to for_training!")
 

@@ -34,7 +34,7 @@ NUM_AUTOTUNE_CONFIGS = 50
 
 
 @contextmanager
-def annotated_context(prelude, epilogue="Passed!", char="-", num_chars=80):
+def annotated_context(prelude: str, epilogue: str="Passed!", char: str="-", num_chars: int=80) -> None:
     print(char * num_chars)
     print(prelude)
     yield
@@ -42,12 +42,12 @@ def annotated_context(prelude, epilogue="Passed!", char="-", num_chars=80):
     print(char * num_chars)
 
 
-def get_text_config(model_id):
+def get_text_config(model_id: str) -> Llama4TextConfig:
     config: Llama4Config = AutoConfig.from_pretrained(model_id)
     return config.text_config
 
 
-def prep_triton_kernel_traits(autotune):
+def prep_triton_kernel_traits(autotune: bool) -> tuple[KernelConfigForward | None, KernelConfigBackward_dW | None, KernelConfigBackward_dX | None]:
     if not autotune:
         kernel_config_fwd = KernelConfigForward()
         kernel_config_bwd_dW = KernelConfigBackward_dW()
@@ -77,7 +77,7 @@ def prep_triton_kernel_traits(autotune):
     return kernel_config_fwd, kernel_config_bwd_dW, kernel_config_bwd_dX
 
 
-def sparse_to_dense(t: torch.Tensor):
+def sparse_to_dense(t: torch.Tensor) -> torch.Tensor:
     t = t.sum(dim=0).view(-1)
     return t
 
@@ -86,12 +86,12 @@ def sparse_to_dense(t: torch.Tensor):
 def _check_diff(
     t1: torch.Tensor,
     t2: torch.Tensor,
-    atol,
-    rtol,
-    precision=".6f",
-    verbose=False,
-    msg="",
-):
+    atol: float,
+    rtol: float,
+    precision: str = ".6f",
+    verbose: bool  = False,
+    msg: str       = "",
+) -> None:
     t2 = t2.view_as(t1)
     diff = t1.sub(t2).abs().max().item()
     if verbose:
@@ -101,7 +101,7 @@ def _check_diff(
     assert torch.allclose(t1, t2, atol=atol, rtol=rtol)
 
 
-def run_backwards(y: torch.Tensor, grad_output: torch.Tensor, module: torch.nn.Module):
+def run_backwards(y: torch.Tensor, grad_output: torch.Tensor, module: torch.nn.Module) -> None:
     y.backward(grad_output)
     for name, param in module.named_parameters():
         assert param.grad is not None, f"{name} missing grad!"
@@ -110,12 +110,12 @@ def run_backwards(y: torch.Tensor, grad_output: torch.Tensor, module: torch.nn.M
 def _check_grads(
     m1: torch.nn.Module,
     m2: torch.nn.Module,
-    atol,
-    rtol,
-    precision=".6f",
-    verbose=False,
-    msg="",
-):
+    atol: float,
+    rtol: float,
+    precision: str = ".6f",
+    verbose: bool  = False,
+    msg: str       = "",
+) -> None:
     for name, param in m1.named_parameters():
         _check_diff(
             param.grad,
@@ -129,7 +129,7 @@ def _check_grads(
 
 
 @pytest.fixture
-def model_config():
+def model_config() -> Llama4TextConfig:
     return AutoConfig.from_pretrained(LLAMA4_SCOUT_ID).text_config
 
 
@@ -151,17 +151,17 @@ def model_config():
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
 def test_llama4_ref(
     dtype: torch.dtype,
-    seqlen,
+    seqlen: int,
     autotune: bool,
     permute_x: bool,
     permute_y: bool,
     overlap_router_shared: bool,
     model_config: Llama4TextConfig,  # test fixture
-    bs: int = 1,
-    device="cuda",
-    precision=".6f",
-    verbose=False,
-):
+    bs: int        = 1,
+    device: str    = "cuda",
+    precision: str = ".6f",
+    verbose: bool  = False,
+) -> None:
     torch.manual_seed(
         SEED
     )  # Should not be needed when running using pytest -- autouse fixture in conftest.py

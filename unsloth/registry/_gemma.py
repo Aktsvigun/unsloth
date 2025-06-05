@@ -5,7 +5,7 @@ _IS_GEMMA_3_INSTRUCT_REGISTERED = False
 
 class GemmaModelInfo(ModelInfo):
     @classmethod
-    def construct_model_name(cls, base_name, version, size, quant_type, instruct_tag):
+    def construct_model_name(cls, base_name: str, version: str, size: str, quant_type: QuantType, instruct_tag: str) -> str:
         key = f"{base_name}-{version}-{size}B"
         return super().construct_model_name(base_name, version, size, quant_type, instruct_tag, key)
 
@@ -33,21 +33,21 @@ GemmaMeta3Instruct = ModelMeta(
     quant_types=[QuantType.NONE, QuantType.BNB, QuantType.UNSLOTH, QuantType.GGUF],
 )
 
-def register_gemma_3_base_models(include_original_model: bool = False):
+def register_gemma_3_base_models(include_original_model: bool = False) -> None:
     global _IS_GEMMA_3_BASE_REGISTERED
     if _IS_GEMMA_3_BASE_REGISTERED:
         return
     _register_models(GemmaMeta3Base, include_original_model=include_original_model)
     _IS_GEMMA_3_BASE_REGISTERED = True
 
-def register_gemma_3_instruct_models(include_original_model: bool = False):
+def register_gemma_3_instruct_models(include_original_model: bool = False) -> None:
     global _IS_GEMMA_3_INSTRUCT_REGISTERED
     if _IS_GEMMA_3_INSTRUCT_REGISTERED:
         return
     _register_models(GemmaMeta3Instruct, include_original_model=include_original_model)
     _IS_GEMMA_3_INSTRUCT_REGISTERED = True
 
-def register_gemma_models(include_original_model: bool = False):
+def register_gemma_models(include_original_model: bool = False) -> None:
     register_gemma_3_base_models(include_original_model=include_original_model)
     register_gemma_3_instruct_models(include_original_model=include_original_model)
 

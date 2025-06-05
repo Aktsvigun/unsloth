@@ -1,3 +1,4 @@
+from typing import Optional, Any
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,18 +33,18 @@ from unsloth_zoo.loss_utils import (
 
 
 def _cross_entropy_forward(
-    logits_ptr        ,
-    logits_row_stride ,
-    loss_ptr          ,
-    logsumexp_ptr     ,
-    labels_ptr        ,
+    logits_ptr: int        ,
+    logits_row_stride: int ,
+    loss_ptr: int          ,
+    logsumexp_ptr: int     ,
+    labels_ptr: int        ,
     VOCAB_SIZE        : tl.constexpr,
     BLOCK_SIZE        : tl.constexpr,
     DO_SOFTCAPPING    : tl.constexpr,
     SOFTCAP           : tl.constexpr,
     DO_LOGIT_SCALING  : tl.constexpr,
     LOGIT_SCALE       : tl.constexpr,
-):
+) -> None:
     """
         Cross Entropy Loss = 1/n sum [ -yi log(Pi) ]
         Pi = exp(xi) / sum(exp(xi))
@@ -106,11 +107,11 @@ _cross_entropy_forward = triton.heuristics(
 
 
 def _chunked_cross_entropy_forward(
-    logits_ptr        ,
-    logits_row_stride ,
-    loss_ptr          ,
-    logsumexp_ptr     ,
-    labels_ptr        ,
+    logits_ptr: int        ,
+    logits_row_stride: int ,
+    loss_ptr: int          ,
+    logsumexp_ptr: int     ,
+    labels_ptr: int        ,
     VOCAB_SIZE        : tl.constexpr,
     N_CHUNKS          : tl.constexpr,
     BLOCK_SIZE        : tl.constexpr,
@@ -118,7 +119,7 @@ def _chunked_cross_entropy_forward(
     SOFTCAP           : tl.constexpr,
     DO_LOGIT_SCALING  : tl.constexpr,
     LOGIT_SCALE       : tl.constexpr,
-):
+) -> None:
     """
         256K vocab divided in 4 chunks
 
@@ -190,19 +191,19 @@ _chunked_cross_entropy_forward = triton.heuristics(
 
 
 def _cross_entropy_backward(
-    logits_ptr        ,
-    logits_row_stride ,
-    dloss_ptr         ,
-    dloss_row_stride  ,
-    logsumexp_ptr     ,
-    labels_ptr        ,
+    logits_ptr: int        ,
+    logits_row_stride: int ,
+    dloss_ptr: int         ,
+    dloss_row_stride: int  ,
+    logsumexp_ptr: int     ,
+    labels_ptr: int        ,
     VOCAB_SIZE        : tl.constexpr,
     BLOCK_SIZE        : tl.constexpr,
     DO_SOFTCAPPING    : tl.constexpr,
     SOFTCAP           : tl.constexpr,
     DO_LOGIT_SCALING  : tl.constexpr,
     LOGIT_SCALE       : tl.constexpr,
-):
+) -> None:
     """
         CE_i = -y log(P) = y * (log[sum(exp(x))] - x)
         dC/dx = d/dx (y * log[sum(exp(x))] - x * y)
@@ -280,8 +281,33 @@ _cross_entropy_backward = triton.heuristics(
 
 MAX_FUSED_SIZE = 65536 # 2**16
 class Fast_CrossEntropyLoss(torch.autograd.Function):
+    """
+    A fast implementation of the CrossEntropyLoss function using Triton for GPU acceleration.
+    
+    This class provides an optimized forward and backward pass for computing cross-entropy loss,
+    with support for large vocabularies and custom operations like logit scaling and softcapping.
+    
+    Methods:
+        forward(ctx, logits: torch.Tensor, labels: torch.Tensor, logit_softcapping: float = 0, logit_scaling: float = 0) -> torch.Tensor
+            Computes the forward pass of the cross-entropy loss.
+        backward(ctx, dlosses: torch.Tensor) -> tuple[torch.Tensor, None, None, None]
+            Computes the backward pass of the cross-entropy loss.
+    """
     @staticmethod
-    def forward(ctx, logits, labels, logit_softcapping : float = 0, logit_scaling : float = 0):
+    def forward(ctx, logits: torch.Tensor, labels: torch.Tensor, logit_softcapping : float = 0, logit_scaling : float = 0) -> torch.Tensor:
+        """
+        Computes the forward pass of the cross-entropy loss.
+        
+        Args:
+            ctx (Any): Context for saving tensors for backward pass.
+            logits (torch.Tensor): Input tensor of shape (batch_size, vocab_size) containing the predicted logits.
+            labels (torch.Tensor): Ground truth labels of shape (batch_size,).
+            logit_softcapping (float, optional): A value to apply softcapping to the logits. Defaults to 0.
+            logit_scaling (float, optional): A value to scale the logits. Defaults to 0.
+        
+        Returns:
+            torch.Tensor: A tensor of shape (batch_size,) containing the computed loss for each sample.
+        """
         n_rows : int
         vocab_size : int
         n_rows, vocab_size = logits.shape
@@ -351,7 +377,16 @@ class Fast_CrossEntropyLoss(torch.autograd.Function):
 
 
     @staticmethod
-    def backward(ctx, dlosses):
+    def backward(ctx, dlosses: torch.Tensor) -> tuple[torch.Tensor, None, None, None]:
+        """
+        Computes the backward pass of the cross-entropy loss.
+        
+        Args:
+            ctx (Any): Context containing saved tensors from the forward pass.    dlosses (torch.Tensor): Gradient of the loss with respect to the output of the forward pass.
+        
+        Returns:
+            tuple[torch.Tensor, None, None, None]: Gradient of the loss with respect to the input logits and None for other parameters.
+        """
         logits, logsumexp, labels = ctx.saved_tensors
         n_rows : int
         vocab_size : int
@@ -383,12 +418,12 @@ pass
 
 
 def fast_cross_entropy_loss(
-    logits,
-    labels,
-    logit_softcapping = 0,
-    logit_scaling = 0,
-    n_items = None,
-):
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    logit_softcapping: float = 0,
+    logit_scaling: float     = 0,
+    n_items: Optional[int]   = None,
+) -> torch.Tensor:
     """
     Arguments:
         logits: (batch, seq_len, vocab_size)
@@ -415,6 +450,13 @@ if (Version(torch.__version__) < Version("2.4.0")) and \
 pass
 
 # Patch CE Losses in transformers
-def patch_loss_functions(torch_compile = True):
+def patch_loss_functions(torch_compile: bool = True) -> None:
+    """
+    Patches the loss functions in the transformers library to use the fast cross-entropy loss implementation.
+    
+    Args:
+        torch_compile (bool, optional): Whether to compile the patched loss functions using TorchScript.
+            Defaults to True.
+    """
     _patch_loss_functions(fast_cross_entropy_loss, torch_compile = torch_compile)
 pass

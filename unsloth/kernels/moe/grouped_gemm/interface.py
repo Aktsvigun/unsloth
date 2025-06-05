@@ -1,3 +1,4 @@
+from typing import Callable, Any, Optional
 import logging
 import warnings
 from dataclasses import asdict
@@ -36,7 +37,13 @@ _FUSED_MUL_WARN = False
 _SUPPORTS_TMA = None
 
 
-def supports_tma():
+def supports_tma() -> bool:
+    """
+    Check if the current device supports Tensor Memory Access (TMA).
+    
+    Returns:
+        `bool`: True if the device supports TMA, False otherwise.
+    """
     global _SUPPORTS_TMA
     if _SUPPORTS_TMA is None:
         _SUPPORTS_TMA = torch.cuda.get_device_capability()[0] >= 9
@@ -46,7 +53,17 @@ def supports_tma():
 _per_device_alloc_fns = {}
 
 
-def get_per_device_per_stream_alloc_fn(device):
+def get_per_device_per_stream_alloc_fn(device: torch.device) -> Callable[[int, int, int], torch.Tensor]:
+    """
+    Get a memory allocation function for a specific device and stream.
+    
+    Args:
+        device (`torch.device`):
+            The device for which to get the allocation function.
+    
+    Returns:
+        `Callable[[int, int, int], torch.Tensor]`: A function that allocates memory for a given size, alignment, and stream.
+    """
     if device not in _per_device_alloc_fns:
         _per_stream_tensors = {}
 
@@ -68,7 +85,15 @@ def get_per_device_per_stream_alloc_fn(device):
 
 def log_kernel_info(
     compiled_kernel: triton.compiler.CompiledKernel, best_config: triton.Config = None
-):
+) -> None:
+    """
+    Log information about a compiled kernel.
+    
+    Args:
+        compiled_kernel (`triton.compiler.CompiledKernel`):
+            The compiled kernel to log information for.    best_config (`triton.Config`, *optional*):
+            The best configuration used for the kernel.
+    """
     kernel_name = compiled_kernel.name
     nregs = compiled_kernel.n_regs
     nspills = compiled_kernel.n_spills
@@ -86,26 +111,26 @@ def grouped_gemm_forward(
     topk: int,
     m_sizes: torch.Tensor,
     gather_indices: torch.Tensor = None,
-    topk_weights: torch.Tensor = None,
+    topk_weights: torch.Tensor   = None,
     # Fusions
-    permute_x: bool = False,
-    permute_y: bool = False,
-    fuse_mul_post: bool = False,
+    permute_x: bool              = False,
+    permute_y: bool              = False,
+    fuse_mul_post: bool          = False,
     # Autotuning - manual kernel params will be ignored if autotune is True
-    autotune: bool = False,
+    autotune: bool               = False,
     # Kernel tuning params if not autotuning -- NOTE: these params need to be tuned, otherwise performance will be poor
-    BLOCK_SIZE_M: int = 32,
-    BLOCK_SIZE_N: int = 32,
-    BLOCK_SIZE_K: int = 32,
-    num_warps: int = 4,
-    num_stages: int = 2,
-    use_tma_load_w: bool = False,
-    use_tma_load_x: bool = False,
-    use_tma_store: bool = False,
+    BLOCK_SIZE_M: int            = 32,
+    BLOCK_SIZE_N: int            = 32,
+    BLOCK_SIZE_K: int            = 32,
+    num_warps: int               = 4,
+    num_stages: int              = 2,
+    use_tma_load_w: bool         = False,
+    use_tma_load_x: bool         = False,
+    use_tma_store: bool          = False,
     # software pipelining -- set to True for now, won't impact until loop is re-written
-    flatten: bool = True,
+    flatten: bool                = True,
     # debugging
-    debug: bool = False,
+    debug: bool                  = False,
 ) -> torch.Tensor:
     """
     Grouped GEMM forward pass for MoE MLPs.
@@ -289,21 +314,21 @@ def grouped_gemm_dX(
     gather_indices: torch.Tensor,
     m_sizes: torch.Tensor,
     topk: int,
-    BLOCK_SIZE_M: int = 32,
-    BLOCK_SIZE_N: int = 32,
-    BLOCK_SIZE_K: int = 32,
-    debug: bool = False,
-    permute_x: bool = False,
-    permute_y: bool = False,
-    use_tma_load_w: bool = False,
+    BLOCK_SIZE_M: int     = 32,
+    BLOCK_SIZE_N: int     = 32,
+    BLOCK_SIZE_K: int     = 32,
+    debug: bool           = False,
+    permute_x: bool       = False,
+    permute_y: bool       = False,
+    use_tma_load_w: bool  = False,
     use_tma_load_dy: bool = False,
-    use_tma_store: bool = False,
-    num_warps: int = 4,
-    num_stages: int = 2,
-    flatten: bool = True,
-    fuse_mul_pre: bool = False,
-    fuse_mul_post: bool = False,
-    autotune: bool = False,
+    use_tma_store: bool   = False,
+    num_warps: int        = 4,
+    num_stages: int       = 2,
+    flatten: bool         = True,
+    fuse_mul_pre: bool    = False,
+    fuse_mul_post: bool   = False,
+    autotune: bool        = False,
 ) -> torch.Tensor:
     """
     dX backward kernel
@@ -449,21 +474,21 @@ def grouped_gemm_dW(
     m_sizes: torch.Tensor,
     gather_indices: torch.Tensor,
     topk: int,
-    BLOCK_SIZE_M: int = 32,
-    BLOCK_SIZE_N: int = 32,
-    BLOCK_SIZE_K: int = 32,
-    permute_x: bool = False,
-    permute_y: bool = False,
+    BLOCK_SIZE_M: int     = 32,
+    BLOCK_SIZE_N: int     = 32,
+    BLOCK_SIZE_K: int     = 32,
+    permute_x: bool       = False,
+    permute_y: bool       = False,
     use_tma_load_dy: bool = False,
-    use_tma_load_x: bool = False,
-    use_tma_store: bool = False,
-    fuse_mul_pre: bool = False,
-    fuse_mul_post: bool = False,
-    num_warps: int = 4,
-    num_stages: int = 2,
-    flatten: bool = True,
-    autotune: bool = False,
-    debug: bool = False,
+    use_tma_load_x: bool  = False,
+    use_tma_store: bool   = False,
+    fuse_mul_pre: bool    = False,
+    fuse_mul_post: bool   = False,
+    num_warps: int        = 4,
+    num_stages: int       = 2,
+    flatten: bool         = True,
+    autotune: bool        = False,
+    debug: bool           = False,
 ) -> torch.Tensor:
     """
     X: (M, K) hidden states where M is the num_tokens if `permute_x` is True, otherwise `total_tokens` where `total_tokens = num_tokens * topk`.
@@ -615,25 +640,74 @@ def grouped_gemm_dW(
 
 
 class GroupedGemm(torch.autograd.Function):
+    """
+    A class that provides grouped GEMM operations for MoE (Mixture of Experts) MLPs.
+    
+    This class encapsulates the forward and backward passes for grouped GEMM operations, which are optimized for
+    parallel processing of multiple matrices in a single operation.
+    
+    Methods:
+        forward: Performs the forward pass of the grouped GEMM operation.
+        backward: Performs the backward pass of the grouped GEMM operation.
+    """
     @staticmethod
     def forward(
         ctx,
-        X,
-        W,
-        m_sizes,
-        topk,
-        gather_indices,
-        permute_x,
-        permute_y,
-        topk_weights,
-        fuse_mul_post,
-        kernel_config_fwd,
-        kernel_config_bwd_dX,
-        kernel_config_bwd_dW,
-        autotune,
-        dX_only,
-        dW_only,
-    ):
+        X: torch.Tensor,
+        W: torch.Tensor,
+        m_sizes: torch.Tensor,
+        topk: int,
+        gather_indices: torch.Tensor,
+        permute_x: bool,
+        permute_y: bool,
+        topk_weights: Optional[torch.Tensor],
+        fuse_mul_post: bool,
+        kernel_config_fwd: Optional[KernelConfigForward],
+        kernel_config_bwd_dX: Optional[KernelConfigBackward_dX],
+        kernel_config_bwd_dW: Optional[KernelConfigBackward_dW],
+        autotune: bool,
+        dX_only: bool,
+        dW_only: bool,
+    ) -> torch.Tensor:
+        """
+        Performs the forward pass of the grouped GEMM operation.
+        
+        Args:
+            ctx: The context object for the autograd function.
+            X (`torch.Tensor`):
+                Input tensor of shape (M, K) representing hidden states.
+            W (`torch.Tensor`):
+                Weight tensor of shape (E, N, K) representing expert weights.
+            m_sizes (`torch.Tensor`):
+                Tensor indicating the number of tokens assigned to each expert.
+            topk (`int`):
+                Number of experts chosen per token.
+            gather_indices (`torch.Tensor`):
+                Indices of tokens assigned to each expert.
+            permute_x (`bool`):
+                Whether to permute the input tensor X.
+            permute_y (`bool`):
+                Whether to permute the output tensor Y.
+            topk_weights (`torch.Tensor`):
+                Weights for the top-k tokens.
+            fuse_mul_post (`bool`):
+                Whether to fuse the multiplication of the output with topk_weights.
+            kernel_config_fwd (`KernelConfigForward`):
+                Configuration for the forward pass kernel.
+            kernel_config_bwd_dX (`KernelConfigBackward_dX`):
+                Configuration for the backward pass kernel for dX.
+            kernel_config_bwd_dW (`KernelConfigBackward_dW`):
+                Configuration for the backward pass kernel for dW.
+            autotune (`bool`):
+                Whether to autotune the kernel.
+            dX_only (`bool`):
+                Whether to compute only the gradient for X.
+            dW_only (`bool`):
+                Whether to compute only the gradient for W.
+        
+        Returns:
+            `torch.Tensor`: The output tensor of the grouped GEMM operation.
+        """
         ctx.topk = topk
         ctx.permute_x = permute_x
         ctx.permute_y = permute_y
@@ -676,7 +750,19 @@ class GroupedGemm(torch.autograd.Function):
         )
 
     @staticmethod
-    def backward(ctx, dY):
+    def backward(ctx, dY: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]:
+        """
+        Performs the backward pass of the grouped GEMM operation.
+        
+        Args:
+            ctx: The context object for the autograd function.
+            dY (`torch.Tensor`):
+                Gradient of the output tensor.
+        
+        Returns:
+            `tuple[torch.Tensor, torch.Tensor, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]`:
+                A tuple containing the gradients of the input tensor X, the weight tensor W, and None values for the other arguments.
+        """
         X, W, m_sizes, gather_indices = ctx.saved_tensors
         topk = ctx.topk
         permute_x = ctx.permute_x
@@ -782,14 +868,14 @@ class GroupedGemm(torch.autograd.Function):
 
 
 def check_valid_config_fwd(
-    permute_x,
-    permute_y,
-    use_tma_load_x,
-    use_tma_load_w,
-    use_tma_store,
-    fuse_mul_post,
-    is_first_gemm,
-):
+    permute_x: bool,
+    permute_y: bool,
+    use_tma_load_x: bool,
+    use_tma_load_w: bool,
+    use_tma_store: bool,
+    fuse_mul_post: bool,
+    is_first_gemm: bool,
+) -> None:
     """
     Check if the configuration is valid for the forward pass.
     """
@@ -814,14 +900,14 @@ def check_valid_config_fwd(
 
 
 def check_valid_config_bwd_dW(
-    permute_x,
-    permute_y,
-    use_tma_load_dY,
-    use_tma_load_x,
-    use_tma_store,
-    fuse_mul_post,
-    is_first_gemm,
-):
+    permute_x: bool,
+    permute_y: bool,
+    use_tma_load_dY: bool,
+    use_tma_load_x: bool,
+    use_tma_store: bool,
+    fuse_mul_post: bool,
+    is_first_gemm: bool,
+) -> None:
     """
     Check if the configuration is valid for the backward pass of dW.
     """
@@ -835,14 +921,14 @@ def check_valid_config_bwd_dW(
 
 
 def check_valid_config_bwd_dX(
-    permute_x,
-    permute_y,
-    use_tma_load_dY,
-    use_tma_load_w,
-    use_tma_store,
-    fuse_mul_post,
-    is_first_gemm,
-):
+    permute_x: bool,
+    permute_y: bool,
+    use_tma_load_dY: bool,
+    use_tma_load_w: bool,
+    use_tma_store: bool,
+    fuse_mul_post: bool,
+    is_first_gemm: bool,
+) -> None:
     """
     Check if the configuration is valid for the backward pass of dW.
     """
@@ -860,20 +946,20 @@ def grouped_gemm(
     W: torch.Tensor,
     m_sizes: torch.Tensor,
     topk: int,
-    gather_indices: torch.Tensor = None,
-    permute_x: bool = False,
-    permute_y: bool = False,
-    topk_weights=None,
-    fuse_mul_post=False,
-    kernel_config_fwd: KernelConfigForward = None,
+    gather_indices: torch.Tensor                  = None,
+    permute_x: bool                               = False,
+    permute_y: bool                               = False,
+    topk_weights: Optional[torch.Tensor]          = None,
+    fuse_mul_post: bool                           = False,
+    kernel_config_fwd: KernelConfigForward        = None,
     kernel_config_bwd_dX: KernelConfigBackward_dX = None,
     kernel_config_bwd_dW: KernelConfigBackward_dW = None,
-    autotune: bool = False,
-    is_first_gemm: bool = True,
+    autotune: bool                                = False,
+    is_first_gemm: bool                           = True,
     # Only for debugging
-    dX_only: bool = False,
-    dW_only: bool = False,
-):
+    dX_only: bool                                 = False,
+    dW_only: bool                                 = False,
+) -> torch.Tensor:
     """
     Grouped GEMM for MoE MLPs.
 

@@ -1,3 +1,4 @@
+from typing import Optional
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,12 +30,30 @@ BAD_MAPPINGS = \
 }
 
 def __get_model_name(
-    model_name,
-    load_in_4bit = True,
-    INT_TO_FLOAT_MAPPER  = None,
-    FLOAT_TO_INT_MAPPER  = None,
-    MAP_TO_UNSLOTH_16bit = None,
-):
+    model_name: str,
+    load_in_4bit: bool                             = True,
+    INT_TO_FLOAT_MAPPER: Optional[dict[str, str]]  = None,
+    FLOAT_TO_INT_MAPPER: Optional[dict[str, str]]  = None,
+    MAP_TO_UNSLOTH_16bit: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """
+    Adjusts the model name based on the load_in_4bit flag and available mappers.
+    
+    Args:
+        model_name (`str`):
+            The original model name to be adjusted.
+        load_in_4bit (`bool`, optional, defaults to `True`):
+            Whether to load the model in 4-bit precision.
+        INT_TO_FLOAT_MAPPER (`Optional[Dict[str, str]]`, optional):
+            A dictionary mapping model names from 4-bit to full-precision.
+        FLOAT_TO_INT_MAPPER (`Optional[Dict[str, str]]`, optional):
+            A dictionary mapping model names from full-precision to 4-bit.
+        MAP_TO_UNSLOTH_16bit (`Optional[Dict[str, str]]`, optional):
+            A dictionary mapping model names to 16-bit versions.
+    
+    Returns:
+        `Optional[str]`: The adjusted model name, or `None` if no mapping is found.
+    """
     model_name = str(model_name)
     lower_model_name = model_name.lower()
 
@@ -83,7 +102,18 @@ def __get_model_name(
 pass
 
 
-def _get_new_mapper():
+def _get_new_mapper() -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """
+    Fetches the latest mappers from a remote source.
+    
+    This function attempts to download and parse the latest version of the mappers from a remote repository.
+    It is used to update the model name mappings for 4-bit and full-precision versions.
+    
+    Returns:
+        `tuple[Dict[str, str], Dict[str, str], Dict[str, str]]`:
+            Three dictionaries containing the latest mappings: from 4-bit to full-precision,
+            from full-precision to 4-bit, and to 16-bit versions.
+    """
     try:
         import requests
         new_mapper = "https://raw.githubusercontent.com/unslothai/unsloth/main/unsloth/models/mapper.py"
@@ -102,7 +132,28 @@ def _get_new_mapper():
 pass
 
 
-def get_model_name(model_name, load_in_4bit = True):
+def get_model_name(model_name: str, load_in_4bit: bool = True) -> str:
+    """
+    Retrieves the appropriate model name based on the given parameters and available mappers.
+    
+    This function adjusts the model name according to the `load_in_4bit` flag and the provided mappers.
+    If no suitable mapping is found, it attempts to fetch the latest mappers from a remote source
+    and tries again.
+    
+    Args:
+        model_name (`str`):
+            The original model name to be adjusted.
+        load_in_4bit (`bool`, optional, defaults to `True`):
+            Whether to load the model in 4-bit precision.
+    
+    Returns:
+        `str`: The adjusted model name, or the original model name if no mapping is found.
+    
+    Raises:
+        `NotImplementedError`:
+            If an updated model name is found but the current Unsloth version does not support it.
+            Instructions to update Unsloth are provided in the error message.
+    """
     new_model_name = __get_model_name(
         model_name = model_name,
         load_in_4bit = load_in_4bit,

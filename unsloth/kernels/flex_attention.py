@@ -1,3 +1,4 @@
+from typing import Any
 # Copyright 2023-present Daniel Han-Chen & the Unsloth team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -146,7 +147,32 @@ pass
 torch_matmul = torch.matmul
 torch_tanh   = torch.tanh
 torch_nn_functional_softmax = torch.nn.functional.softmax
-def slow_inference_attention_softcapping(Q, K, V, causal_mask, self, bsz, q_len):
+def slow_inference_attention_softcapping(Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor, causal_mask: torch.Tensor, self, bsz: int, q_len: int) -> torch.Tensor:
+    """
+    Computes attention with logit softcapping and causal masking for a given set of query, key, and value tensors.
+    
+    Args:
+        Q (`torch.Tensor`):
+            Query tensor of shape (batch_size, num_heads, sequence_length, head_dim).
+        K (`torch.Tensor`):
+            Key tensor of shape (batch_size, num_key_value_heads, sequence_length, head_dim).
+        V (`torch.Tensor`):
+            Value tensor of shape (batch_size, num_key_value_heads, sequence_length, head_dim).
+        causal_mask (`torch.Tensor`):
+            Causal mask tensor of shape (sequence_length, sequence_length) used to prevent attention to future tokens.
+        self (`object`):
+            Self reference to the attention layer or model configuration containing parameters like num_attention_heads,
+            head_dim, num_key_value_heads, and attention logit softcapping value.
+        bsz (`int`):
+            Batch size.
+        q_len (`int`):
+            Query sequence length.
+    
+    Returns:
+        `torch.Tensor`:
+            Output tensor of shape (batch_size, sequence_length, num_heads * head_dim) after applying attention and
+            reshaping the result.
+    """
     n_heads    = self.config.num_attention_heads
     head_dim   = self.head_dim
     n_kv_heads = self.config.num_key_value_heads
